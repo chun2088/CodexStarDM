@@ -194,6 +194,10 @@ export async function POST(request: Request) {
             orderId: generatedOrderId,
           },
         },
+        eventContext: {
+          actorId: store.owner_id,
+        },
+        eventSource: "api.billing.subscriptions.create",
       });
     } catch (updateError) {
       console.error("Failed to record failed subscription attempt", updateError);
@@ -249,6 +253,10 @@ export async function POST(request: Request) {
         paymentKey: paymentResponse?.paymentKey ?? null,
       },
     },
+    eventContext: {
+      actorId: store.owner_id,
+    },
+    eventSource: "api.billing.subscriptions.create",
   });
 
   return NextResponse.json(

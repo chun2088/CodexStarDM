@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { recordEvent, type EventContext } from "./event-service";
+
 export type StoreSubscriptionStatus = "active" | "grace" | "canceled";
 
 export type StoreRecord = {
@@ -196,6 +198,8 @@ export type StoreSubscriptionUpdateInput = {
   canceledAt?: string | null;
   metadataPatch?: Record<string, unknown>;
   event?: SubscriptionEvent;
+  eventContext?: EventContext;
+  eventSource?: string | null;
 };
 
 export async function upsertStoreSubscription(
@@ -294,6 +298,30 @@ export async function upsertStoreSubscription(
 
   if (storeError) {
     throw storeError;
+  }
+
+  if (input.event) {
+    const context: EventContext = {
+      storeId,
+      subscriptionId: updatedSubscription.id,
+      planId: updatedSubscription.plan_id,
+      billingProfileId: updatedSubscription.billing_profile_id,
+      previousStatus: existing?.status ?? null,
+      nextStatus: updatedSubscription.status,
+      ...(input.eventContext ?? {}),
+    };
+
+    try {
+      await recordEvent(client, {
+        type: input.event.type,
+        at: input.event.at,
+        details: input.event.details,
+        context,
+        source: input.eventSource ?? null,
+      });
+    } catch (eventError) {
+      console.error("Failed to record store subscription event", eventError);
+    }
   }
 
   return updatedSubscription;

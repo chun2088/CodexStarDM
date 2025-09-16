@@ -30,7 +30,8 @@ with seed_ids as (
     'aaaa0000-bbbb-cccc-dddd-eeeeffff0001'::uuid as store_invite_id,
     'aaaa0000-bbbb-cccc-dddd-eeeeffff0002'::uuid as store_id,
     'aaaa0000-bbbb-cccc-dddd-eeeeffff0003'::uuid as store_billing_profile_id,
-    'aaaa0000-bbbb-cccc-dddd-eeeeffff0004'::uuid as store_subscription_id
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0004'::uuid as store_subscription_id,
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0005'::uuid as event_seed_id
 )
 insert into public.users as u (id, email, role, full_name, avatar_url, metadata, created_at, updated_at)
 select admin_id, 'admin@example.com', 'admin', 'Ada Admin', null, jsonb_build_object('seed', true, 'title', 'Operations Lead'), now(), now() from seed_ids
@@ -205,6 +206,30 @@ set
   description = excluded.description,
   reference_id = excluded.reference_id,
   metadata = excluded.metadata,
+  created_at = excluded.created_at;
+
+insert into public.events as e (id, type, data, created_at)
+select
+  event_seed_id,
+  'seed.sample_event',
+  jsonb_build_object(
+    'occurredAt', now() - interval '12 hours',
+    'message', 'Seeded analytics event for admin review',
+    'source', 'seed.data_loader',
+    'context', jsonb_build_object(
+      'storeId', store_id,
+      'subscriptionId', store_subscription_id
+    ),
+    'details', jsonb_build_object(
+      'note', 'events table bootstrap'
+    )
+  ),
+  now() - interval '12 hours'
+from seed_ids
+on conflict (id) do update
+set
+  type = excluded.type,
+  data = excluded.data,
   created_at = excluded.created_at;
 
 -- Ensure wallet balances reflect the sample ledger data.
