@@ -1,0 +1,18 @@
+{
+  "name": "codexstardm",
+  "version": "1.0.0",
+  "description": "Supabase client configuration and database schema for CodexStarDM.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node -e \"console.log('No test suite defined.')\"",
+    "supabase:migrate": "supabase migration up"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "dotenv": "^17.2.2"
+  }
+}
