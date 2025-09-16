@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import {
+  StoreFeatureAccessError,
+  assertStoreFeatureAccess,
+  fetchStoreForCoupon,
+} from "@/lib/store-service";
 import { ensureCouponState, transitionWallet } from "@/lib/wallet-service";
 
 type ClaimRequestBody = {
@@ -47,7 +52,7 @@ export async function POST(
   const { data: coupon, error: couponError } = await supabase
     .from("coupons")
     .select(
-      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, metadata",
+      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, metadata, store_id, merchant_id",
     )
     .eq("id", couponId)
     .maybeSingle();
@@ -97,6 +102,42 @@ export async function POST(
     return NextResponse.json(
       { error: "Coupon redemption limit reached" },
       { status: 409 },
+    );
+  }
+
+  let store;
+
+  try {
+    store = await fetchStoreForCoupon(supabase, coupon.id, coupon.merchant_id);
+  } catch (error) {
+    console.error("Failed to load store for coupon claim", error);
+    return NextResponse.json(
+      { error: "Unable to validate store subscription" },
+      { status: 500 },
+    );
+  }
+
+  if (!store) {
+    return NextResponse.json(
+      { error: "Store not found for coupon" },
+      { status: 404 },
+    );
+  }
+
+  try {
+    assertStoreFeatureAccess(store.subscription_status, "coupon.claim", store.name);
+  } catch (error) {
+    if (error instanceof StoreFeatureAccessError) {
+      return NextResponse.json(
+        { error: error.message, subscriptionStatus: error.status },
+        { status: 402 },
+      );
+    }
+
+    console.error("Unexpected store access error", error);
+    return NextResponse.json(
+      { error: "Unable to authorize coupon claim" },
+      { status: 500 },
     );
   }
 
@@ -153,6 +194,7 @@ export async function POST(
       details: {
         couponId: coupon.id,
         userId,
+        storeId: store.id,
       },
     },
     mutateMetadata: (metadata) => {

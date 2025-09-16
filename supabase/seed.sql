@@ -26,7 +26,11 @@ with seed_ids as (
     '66666666-7777-8888-9999-000000000000'::uuid as subscription_subscriber_id,
     '77777777-8888-9999-0000-111111111111'::uuid as redemption_id,
     '88888888-9999-0000-1111-222222222222'::uuid as tx_credit_id,
-    '99999999-0000-1111-2222-333333333333'::uuid as tx_debit_id
+    '99999999-0000-1111-2222-333333333333'::uuid as tx_debit_id,
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0001'::uuid as store_invite_id,
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0002'::uuid as store_id,
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0003'::uuid as store_billing_profile_id,
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0004'::uuid as store_subscription_id
 )
 insert into public.users as u (id, email, role, full_name, avatar_url, metadata, created_at, updated_at)
 select admin_id, 'admin@example.com', 'admin', 'Ada Admin', null, jsonb_build_object('seed', true, 'title', 'Operations Lead'), now(), now() from seed_ids
@@ -59,6 +63,58 @@ set
   metadata = excluded.metadata,
   updated_at = now();
 
+insert into public.store_invite_codes as sic (id, code, created_by, max_uses, used_count, last_used_at, expires_at, is_active, metadata, created_at, updated_at)
+select store_invite_id, 'GALAXY-ACCESS', admin_id, 5, 1, now() - interval '2 days', now() + interval '60 days', true, jsonb_build_object('note', 'Starter invite code'), now(), now() from seed_ids
+on conflict (id) do update
+set
+  code = excluded.code,
+  max_uses = excluded.max_uses,
+  used_count = excluded.used_count,
+  last_used_at = excluded.last_used_at,
+  expires_at = excluded.expires_at,
+  is_active = excluded.is_active,
+  metadata = excluded.metadata,
+  updated_at = now();
+
+insert into public.stores as s (id, owner_id, invite_code_id, name, slug, subscription_status, metadata, created_at, updated_at)
+select store_id, merchant_id, store_invite_id, 'Galactic Coffee Roasters', 'galactic-coffee', 'active', jsonb_build_object('timezone', 'UTC'), now(), now() from seed_ids
+on conflict (id) do update
+set
+  owner_id = excluded.owner_id,
+  invite_code_id = excluded.invite_code_id,
+  name = excluded.name,
+  slug = excluded.slug,
+  subscription_status = excluded.subscription_status,
+  metadata = excluded.metadata,
+  updated_at = now();
+
+insert into public.store_billing_profiles as sbp (id, store_id, provider, billing_key, customer_key, status, metadata, created_at, updated_at)
+select store_billing_profile_id, store_id, 'toss', 'billing_test_key', 'store-galactic', 'active', jsonb_build_object('seed', true), now(), now() from seed_ids
+on conflict (id) do update
+set
+  store_id = excluded.store_id,
+  provider = excluded.provider,
+  billing_key = excluded.billing_key,
+  customer_key = excluded.customer_key,
+  status = excluded.status,
+  metadata = excluded.metadata,
+  updated_at = now();
+
+insert into public.store_subscriptions as ss (id, store_id, plan_id, billing_profile_id, status, current_period_start, current_period_end, grace_until, canceled_at, metadata, created_at, updated_at)
+select store_subscription_id, store_id, plan_monthly_id, store_billing_profile_id, 'active', now() - interval '5 days', now() + interval '25 days', now() + interval '25 days', null, jsonb_build_object('auto_renew', true), now(), now() from seed_ids
+on conflict (id) do update
+set
+  store_id = excluded.store_id,
+  plan_id = excluded.plan_id,
+  billing_profile_id = excluded.billing_profile_id,
+  status = excluded.status,
+  current_period_start = excluded.current_period_start,
+  current_period_end = excluded.current_period_end,
+  grace_until = excluded.grace_until,
+  canceled_at = excluded.canceled_at,
+  metadata = excluded.metadata,
+  updated_at = now();
+
 insert into public.subscription_plans as sp (id, code, name, description, price, currency, billing_interval, interval_count, trial_period_days, metadata, is_active, created_at, updated_at)
 select plan_monthly_id, 'premium-monthly', 'Premium Monthly', 'Monthly membership with complimentary refills and bonus points.', 29.99, 'USD', 'month', 1, 7, jsonb_build_object('benefits', array['bonus_points', 'free_refill']), true, now(), now() from seed_ids
 union all
@@ -76,15 +132,16 @@ set
   is_active = excluded.is_active,
   updated_at = now();
 
-insert into public.coupons as c (id, merchant_id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, is_stackable, metadata, created_at, updated_at)
-select coupon_welcome_id, merchant_id, 'WELCOME10', 'Welcome 10% Off', 'Get 10% off your first purchase with the app.', 'percentage', 10, 100, 1, now() - interval '7 days', now() + interval '30 days', true, false, jsonb_build_object('category', 'onboarding'), now(), now() from seed_ids
+insert into public.coupons as c (id, merchant_id, store_id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, is_stackable, metadata, created_at, updated_at)
+select coupon_welcome_id, merchant_id, store_id, 'WELCOME10', 'Welcome 10% Off', 'Get 10% off your first purchase with the app.', 'percentage', 10, 100, 1, now() - interval '7 days', now() + interval '30 days', true, false, jsonb_build_object('category', 'onboarding'), now(), now() from seed_ids
 union all
-select coupon_free_drink_id, merchant_id, 'FREEDRINK', 'Free Drink Credit', 'Apply for a complimentary drink credit.', 'fixed', 5, 50, 0, now() - interval '1 days', now() + interval '14 days', true, true, jsonb_build_object('category', 'loyalty'), now(), now() from seed_ids
+select coupon_free_drink_id, merchant_id, store_id, 'FREEDRINK', 'Free Drink Credit', 'Apply for a complimentary drink credit.', 'fixed', 5, 50, 0, now() - interval '1 days', now() + interval '14 days', true, true, jsonb_build_object('category', 'loyalty'), now(), now() from seed_ids
 on conflict (id) do update
 set
   code = excluded.code,
   name = excluded.name,
   description = excluded.description,
+  store_id = excluded.store_id,
   discount_type = excluded.discount_type,
   discount_value = excluded.discount_value,
   max_redemptions = excluded.max_redemptions,
