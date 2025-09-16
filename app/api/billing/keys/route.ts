@@ -157,6 +157,10 @@ export async function POST(request: Request) {
           billingProfileId: profile.id,
         },
       },
+      eventContext: {
+        actorId: store.owner_id,
+      },
+      eventSource: "api.billing.keys.register",
     });
   } catch (error) {
     console.error("Failed to update store subscription metadata", error);

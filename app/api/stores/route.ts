@@ -203,6 +203,10 @@ export async function POST(request: Request) {
           inviteCodeId: invite.id,
         },
       },
+      eventContext: {
+        actorId: ownerId,
+      },
+      eventSource: "api.stores.create",
     });
   } catch (error) {
     console.error("Failed to initialize store subscription", error);

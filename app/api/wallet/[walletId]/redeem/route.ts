@@ -151,6 +151,12 @@ export async function POST(
           expiresAt: qrToken.expires_at,
         },
       },
+      eventContext: {
+        couponId: qrToken.coupon_id ?? null,
+        qrTokenId: qrToken.id,
+        actorId: wallet.user_id,
+      },
+      eventSource: "api.wallet.redeem",
       mutateMetadata: (metadata) => {
         const nextMetadata = { ...metadata };
         const { couponState } = ensureCouponState(nextMetadata);
@@ -375,6 +381,14 @@ export async function POST(
         storeId: store?.id ?? null,
       },
     },
+    eventContext: {
+      couponId: coupon?.id ?? qrToken.coupon_id ?? null,
+      storeId: store?.id ?? null,
+      qrTokenId: qrToken.id,
+      redemptionId: redemptionRecord?.id ?? null,
+      actorId: wallet.user_id,
+    },
+    eventSource: "api.wallet.redeem",
     mutateMetadata: (metadata) => {
       const nextMetadata = { ...metadata };
       const { couponState } = ensureCouponState(nextMetadata);

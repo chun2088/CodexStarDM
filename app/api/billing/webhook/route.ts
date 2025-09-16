@@ -191,6 +191,7 @@ export async function POST(request: Request) {
             paymentKey: eventData.paymentKey ?? null,
           },
         },
+        eventSource: "api.billing.webhook",
       });
 
       return NextResponse.json(
@@ -243,6 +244,7 @@ export async function POST(request: Request) {
             orderId: eventData.orderId ?? null,
           },
         },
+        eventSource: "api.billing.webhook",
       });
 
       return NextResponse.json({ status: "grace" }, { status: 200 });
@@ -276,6 +278,7 @@ export async function POST(request: Request) {
             billingKey,
           },
         },
+        eventSource: "api.billing.webhook",
       });
 
       const { error: revokeError } = await supabase

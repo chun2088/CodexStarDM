@@ -256,6 +256,13 @@ export async function POST(
         storeId: store.id,
       },
     },
+    eventContext: {
+      couponId: coupon.id,
+      storeId: store.id,
+      qrTokenId: insertedToken.id,
+      actorId: userId,
+    },
+    eventSource: "api.wallet.qr.create",
     mutateMetadata: (metadata) => {
       const nextMetadata = { ...metadata };
       const { couponState } = ensureCouponState(nextMetadata);

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { recordEvent, type EventContext } from "./event-service";
+
 type JsonRecord = {
   [key: string]: unknown;
   events?: unknown;
@@ -67,6 +69,8 @@ export async function transitionWallet({
   event,
   mutateMetadata,
   eventLimit = MAX_STORED_EVENTS,
+  eventContext,
+  eventSource,
 }: {
   client: SupabaseClient;
   wallet?: WalletRow | null;
@@ -75,6 +79,8 @@ export async function transitionWallet({
   event: WalletEvent;
   mutateMetadata?: WalletMetadataMutator;
   eventLimit?: number;
+  eventContext?: EventContext;
+  eventSource?: string | null;
 }) {
   const baseWallet = wallet ?? (await fetchWallet(client, walletId));
 
@@ -110,6 +116,25 @@ export async function transitionWallet({
 
   if (error) {
     throw error;
+  }
+
+  try {
+    await recordEvent(client, {
+      type: event.type,
+      at: event.at,
+      message: event.message,
+      details: event.details,
+      source: eventSource ?? null,
+      context: {
+        walletId: baseWallet.id,
+        userId: baseWallet.user_id,
+        previousStatus: baseWallet.status,
+        nextStatus,
+        ...(eventContext ?? {}),
+      },
+    });
+  } catch (eventError) {
+    console.error("Failed to record wallet event", eventError);
   }
 
   console.info(`[wallet:${walletId}] ${event.message}`, {
