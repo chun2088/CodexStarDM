@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import {
+  extractStoreStatusFromCoupon,
+  isFeatureAllowed,
+  type StoreRecord,
+} from "@/lib/store-service";
 
 type CouponRow = {
   id: string;
@@ -15,6 +20,8 @@ type CouponRow = {
   end_at: string | null;
   is_active: boolean;
   metadata: Record<string, unknown> | null;
+  store_id: string | null;
+  merchant_id: string | null;
 };
 
 type CouponPayload = {
@@ -29,6 +36,7 @@ type CouponPayload = {
   metadata: Record<string, unknown> | null;
   redeemedCount: number;
   maxRedemptions: number | null;
+  storeId: string | null;
 };
 
 function isClaimable(coupon: CouponRow, now: Date) {
@@ -60,7 +68,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("coupons")
     .select(
-      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, metadata",
+      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, metadata, store_id, merchant_id",
     );
 
   if (error) {
@@ -72,9 +80,55 @@ export async function GET() {
   }
 
   const now = new Date();
-  const coupons: CouponPayload[] = (data ?? [])
-    .filter((coupon) => isClaimable(coupon as CouponRow, now))
-    .map((coupon) => ({
+  const couponRows = (data ?? []) as CouponRow[];
+  const ownerIds = Array.from(
+    new Set(
+      couponRows
+        .map((coupon) => coupon.merchant_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  let stores: StoreRecord[] = [];
+
+  if (ownerIds.length > 0) {
+    const { data: storeRows, error: storeError } = await supabase
+      .from("stores")
+      .select("id, owner_id, subscription_status, name")
+      .in("owner_id", ownerIds);
+
+    if (storeError) {
+      console.error("Failed to load stores for coupons", storeError);
+      return NextResponse.json(
+        { error: "Unable to determine coupon availability" },
+        { status: 500 },
+      );
+    }
+
+    stores = (storeRows ?? []) as StoreRecord[];
+  }
+
+  const storesById = new Map(stores.map((store) => [store.id, store]));
+  const storesByOwner = new Map(stores.map((store) => [store.owner_id, store]));
+
+  const coupons: CouponPayload[] = [];
+
+  for (const coupon of couponRows) {
+    if (!isClaimable(coupon, now)) {
+      continue;
+    }
+
+    const store = extractStoreStatusFromCoupon(coupon, storesById, storesByOwner);
+
+    if (!store) {
+      continue;
+    }
+
+    if (!isFeatureAllowed(store.subscription_status)) {
+      continue;
+    }
+
+    coupons.push({
       id: coupon.id,
       code: coupon.code,
       name: coupon.name,
@@ -86,7 +140,9 @@ export async function GET() {
       metadata: coupon.metadata,
       redeemedCount: coupon.redeemed_count,
       maxRedemptions: coupon.max_redemptions,
-    }));
+      storeId: coupon.store_id,
+    });
+  }
 
   return NextResponse.json({ coupons });
 }

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { hashQrToken } from "@/lib/qr-token";
+import {
+  StoreFeatureAccessError,
+  assertStoreFeatureAccess,
+  fetchStoreForCoupon,
+} from "@/lib/store-service";
 import { ensureCouponState, transitionWallet } from "@/lib/wallet-service";
 
 type RedeemRequestBody = {
@@ -184,13 +189,22 @@ export async function POST(
         max_redemptions: number | null;
         is_active: boolean;
         end_at: string | null;
+        store_id: string | null;
+        merchant_id: string | null;
+      }
+    | null = null;
+  let store:
+    | {
+        id: string;
+        subscription_status: "active" | "grace" | "canceled";
+        name?: string | null;
       }
     | null = null;
 
   if (qrToken.coupon_id) {
     const { data, error } = await supabase
       .from("coupons")
-      .select("id, code, redeemed_count, max_redemptions, is_active, end_at")
+      .select("id, code, redeemed_count, max_redemptions, is_active, end_at, store_id, merchant_id")
       .eq("id", qrToken.coupon_id)
       .maybeSingle();
 
@@ -232,6 +246,40 @@ export async function POST(
       return NextResponse.json(
         { error: "Coupon redemption limit reached" },
         { status: 409 },
+      );
+    }
+
+    try {
+      store = await fetchStoreForCoupon(supabase, coupon.id, coupon.merchant_id);
+    } catch (error) {
+      console.error("Failed to resolve store for redemption", error);
+      return NextResponse.json(
+        { error: "Unable to validate store subscription" },
+        { status: 500 },
+      );
+    }
+
+    if (!store) {
+      return NextResponse.json(
+        { error: "Store not found for coupon" },
+        { status: 404 },
+      );
+    }
+
+    try {
+      assertStoreFeatureAccess(store.subscription_status, "wallet.redeem", store.name);
+    } catch (error) {
+      if (error instanceof StoreFeatureAccessError) {
+        return NextResponse.json(
+          { error: error.message, subscriptionStatus: error.status },
+          { status: 402 },
+        );
+      }
+
+      console.error("Unexpected store subscription error", error);
+      return NextResponse.json(
+        { error: "Unable to authorize redemption" },
+        { status: 500 },
       );
     }
   }
@@ -324,6 +372,7 @@ export async function POST(
         couponId: coupon?.id ?? null,
         qrTokenId: qrToken.id,
         redemptionId: redemptionRecord?.id ?? null,
+        storeId: store?.id ?? null,
       },
     },
     mutateMetadata: (metadata) => {

@@ -15,3 +15,11 @@ npm run dev
 - 📱 PWA ready via `next-pwa`, including custom runtime caching and an offline fallback route
 - 🔄 TanStack Query with sensible defaults for server state management
 - 🔐 React context for managing auth/session data with optional persistence
+- 💳 Toss Payments billing integration with invite-based store onboarding
+
+## Environment variables
+
+The billing endpoints rely on Toss Payments credentials. Configure the following variables in your runtime environment:
+
+- `TOSS_SECRET_KEY` (required) — Toss Payments secret key used for server-to-server requests.
+- `TOSS_API_BASE_URL` (optional) — Override the Toss API base URL; defaults to `https://api.tosspayments.com`.
