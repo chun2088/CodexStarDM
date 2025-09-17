@@ -1,7 +1,9 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { recordEvent } from "@/lib/event-service";
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import {
   StoreFeatureAccessError,
@@ -19,9 +21,9 @@ type CouponDiscountType = "percentage" | "fixed";
 
 type AuthenticatedMerchant = {
   merchantId: string;
+  supabase: SupabaseClient;
 };
 
-const ACCESS_TOKEN_COOKIE_NAME = "sb-access-token";
 const CODE_REGEX = /^[A-Z0-9-]+$/;
 const MAX_CODE_LENGTH = 32;
 const MAX_NAME_LENGTH = 120;
@@ -39,21 +41,6 @@ const STATUS_SEQUENCE: ReadonlySet<CouponStatus> = new Set([
 
 function isCouponStatus(value: unknown): value is CouponStatus {
   return typeof value === "string" && STATUS_SEQUENCE.has(value as CouponStatus);
-}
-
-function extractAccessToken(request: Request) {
-  const authHeader = request.headers.get("authorization") ?? request.headers.get("Authorization");
-
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.slice("Bearer ".length).trim();
-    if (token) {
-      return token;
-    }
-  }
-
-  const cookieStore = cookies();
-  const cookieToken = cookieStore.get(ACCESS_TOKEN_COOKIE_NAME)?.value;
-  return cookieToken ?? null;
 }
 
 function normalizeCode(value: unknown) {
@@ -240,58 +227,21 @@ function canMerchantTransition(current: CouponStatus, next: CouponStatus) {
   return false;
 }
 
-async function authenticateMerchant(request: Request) {
-  const accessToken = extractAccessToken(request);
+async function authenticateMerchant(): Promise<AuthenticatedMerchant | { error: NextResponse }> {
+  try {
+    const { supabase, user } = await requireAuthenticatedUser({ requiredRole: "merchant" });
+    return { merchantId: user.id, supabase } satisfies AuthenticatedMerchant;
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return { error: authorizationErrorResponse(error) } as const;
+    }
 
-  if (!accessToken) {
-    return {
-      error: NextResponse.json({ error: "Authentication required" }, { status: 401 }),
-    } as const;
+    throw error;
   }
-
-  const supabase = getSupabaseAdminClient();
-
-  const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
-
-  if (authError || !authData?.user) {
-    console.error("Failed to verify Supabase access token", authError);
-    return {
-      error: NextResponse.json({ error: "Invalid or expired session" }, { status: 401 }),
-    } as const;
-  }
-
-  const merchantId = authData.user.id;
-
-  const { data: profile, error: profileError } = await supabase
-    .from("users")
-    .select("id, role")
-    .eq("id", merchantId)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("Failed to load merchant profile", profileError);
-    return {
-      error: NextResponse.json({ error: "Unable to verify merchant" }, { status: 500 }),
-    } as const;
-  }
-
-  if (!profile) {
-    return {
-      error: NextResponse.json({ error: "Merchant profile not found" }, { status: 404 }),
-    } as const;
-  }
-
-  if (profile.role !== "merchant") {
-    return {
-      error: NextResponse.json({ error: "Only merchants can manage coupons" }, { status: 403 }),
-    } as const;
-  }
-
-  return { merchantId } satisfies AuthenticatedMerchant;
 }
 
 async function resolveMerchantStore(
-  supabase = getSupabaseAdminClient(),
+  supabase: SupabaseClient,
   merchantId: string,
   providedStoreId?: string | null,
 ): Promise<StoreRecord> {
@@ -472,7 +422,7 @@ type CreateCouponRequest = {
 };
 
 export async function POST(request: Request) {
-  const authResult = await authenticateMerchant(request);
+  const authResult = await authenticateMerchant();
 
   if ("error" in authResult) {
     return authResult.error;
@@ -487,13 +437,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const supabase = getSupabaseAdminClient();
+  const { merchantId, supabase } = authResult;
   const storeIdInput = typeof body.storeId === "string" ? body.storeId : null;
 
   let store: StoreRecord;
 
   try {
-    store = await resolveMerchantStore(supabase, authResult.merchantId, storeIdInput);
+    store = await resolveMerchantStore(supabase, merchantId, storeIdInput);
   } catch {
     return NextResponse.json({ error: "Store not found for merchant" }, { status: 404 });
   }
@@ -535,7 +485,7 @@ export async function POST(request: Request) {
   }
 
   const payload = {
-    merchant_id: authResult.merchantId,
+    merchant_id: merchantId,
     store_id: store.id,
     code,
     name,
@@ -576,7 +526,7 @@ export async function POST(request: Request) {
       context: {
         couponId: insertResult.id,
         storeId: insertResult.store_id,
-        actorId: authResult.merchantId,
+        actorId: merchantId,
         nextStatus: insertResult.status,
       },
       details: {
@@ -609,7 +559,7 @@ type UpdateCouponRequest = {
 };
 
 export async function PATCH(request: Request) {
-  const authResult = await authenticateMerchant(request);
+  const authResult = await authenticateMerchant();
 
   if ("error" in authResult) {
     return authResult.error;
@@ -635,7 +585,7 @@ export async function PATCH(request: Request) {
   }
 
   const couponId = couponIdRaw.trim();
-  const supabase = getSupabaseAdminClient();
+  const { merchantId, supabase } = authResult;
 
   const providedStoreId =
     typeof body.storeId === "string" && body.storeId.trim() ? body.storeId.trim() : null;
@@ -653,7 +603,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unable to load coupon" }, { status: 500 });
   }
 
-  if (!couponRow || couponRow.merchant_id !== authResult.merchantId) {
+  if (!couponRow || couponRow.merchant_id !== merchantId) {
     return NextResponse.json({ error: "Coupon not found" }, { status: 404 });
   }
 
@@ -675,7 +625,7 @@ export async function PATCH(request: Request) {
   let store: StoreRecord;
 
   try {
-    store = await resolveMerchantStore(supabase, authResult.merchantId, couponRow.store_id);
+    store = await resolveMerchantStore(supabase, merchantId, couponRow.store_id);
   } catch {
     return NextResponse.json({ error: "Store not found for merchant" }, { status: 404 });
   }
@@ -812,7 +762,7 @@ export async function PATCH(request: Request) {
     .from("coupons")
     .update(updatePayload)
     .eq("id", couponId)
-    .eq("merchant_id", authResult.merchantId)
+    .eq("merchant_id", merchantId)
     .select(
       "id, code, name, description, discount_type, discount_value, max_redemptions, start_at, end_at, status, is_active, store_id, merchant_id",
     )
@@ -839,7 +789,7 @@ export async function PATCH(request: Request) {
       context: {
         couponId: updatedCoupon.id,
         storeId: updatedCoupon.store_id,
-        actorId: authResult.merchantId,
+        actorId: merchantId,
         previousStatus: couponRow.status,
         nextStatus: updatedCoupon.status,
       },

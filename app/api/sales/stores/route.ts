@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 
 type StoreRow = {
   id: string;
@@ -28,7 +28,19 @@ type InviteCodeRow = {
 };
 
 export async function GET() {
-  const supabase = getSupabaseAdminClient();
+  let auth;
+
+  try {
+    auth = await requireAuthenticatedUser({ requiredRole: "sales" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
+  }
+
+  const { supabase } = auth;
 
   const { data: storeRows, error: storeError } = await supabase
     .from("stores")

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import {
   StoreFeatureAccessError,
@@ -9,7 +10,6 @@ import {
 import { ensureCouponState, transitionWallet } from "@/lib/wallet-service";
 
 type ClaimRequestBody = {
-  userId?: string;
   walletId?: string;
 };
 
@@ -38,16 +38,30 @@ export async function POST(
     );
   }
 
-  const { userId, walletId } = body ?? {};
+  const { walletId } = body ?? {};
 
-  if (!userId || !walletId) {
+  if (!walletId) {
     return NextResponse.json(
-      { error: "userId and walletId are required" },
+      { error: "walletId is required" },
       { status: 400 },
     );
   }
 
-  const supabase = getSupabaseAdminClient();
+  let auth;
+
+  try {
+    auth = await requireAuthenticatedUser({ requiredRole: "customer" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
+  }
+
+  const { supabase, user } = auth;
+  const userId = user.id;
+  const adminSupabase = getSupabaseAdminClient();
 
   const { data: coupon, error: couponError } = await supabase
     .from("coupons")
@@ -108,7 +122,7 @@ export async function POST(
   let store;
 
   try {
-    store = await fetchStoreForCoupon(supabase, coupon.id, coupon.merchant_id);
+    store = await fetchStoreForCoupon(adminSupabase, coupon.id, coupon.merchant_id);
   } catch (error) {
     console.error("Failed to load store for coupon claim", error);
     return NextResponse.json(
@@ -159,13 +173,6 @@ export async function POST(
     return NextResponse.json(
       { error: "Wallet not found" },
       { status: 404 },
-    );
-  }
-
-  if (wallet.user_id !== userId) {
-    return NextResponse.json(
-      { error: "Wallet does not belong to user" },
-      { status: 403 },
     );
   }
 

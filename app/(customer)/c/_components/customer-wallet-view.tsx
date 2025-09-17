@@ -67,12 +67,12 @@ export function CustomerWalletView() {
   const [qrResult, setQrResult] = useState<GenerateQrResponse | null>(null);
   const [redeemResult, setRedeemResult] = useState<RedeemResponse | null>(null);
 
-  const claimMutation = useMutation<ClaimResponse, ApiError, { userId: string; walletId: string; couponId: string }>({
-    mutationFn: async ({ userId, walletId: wallet, couponId: coupon }) => {
+  const claimMutation = useMutation<ClaimResponse, ApiError, { walletId: string; couponId: string }>({
+    mutationFn: async ({ walletId: wallet, couponId: coupon }) => {
       const response = await fetch(`/api/coupons/${coupon}/claim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, walletId: wallet }),
+        body: JSON.stringify({ walletId: wallet }),
       });
 
       return parseJsonResponse<ClaimResponse>(response);
@@ -90,13 +90,13 @@ export function CustomerWalletView() {
     },
   });
 
-  const qrMutation = useMutation<GenerateQrResponse, ApiError, { userId: string; walletId: string; couponId?: string }>(
+  const qrMutation = useMutation<GenerateQrResponse, ApiError, { walletId: string; couponId?: string }>(
     {
-      mutationFn: async ({ userId, walletId: wallet, couponId: coupon }) => {
+      mutationFn: async ({ walletId: wallet, couponId: coupon }) => {
         const response = await fetch(`/api/wallet/${wallet}/qr`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, couponId: coupon ?? null }),
+          body: JSON.stringify({ couponId: coupon ?? null }),
         });
 
         return parseJsonResponse<GenerateQrResponse>(response);
@@ -167,7 +167,7 @@ export function CustomerWalletView() {
       return;
     }
 
-    claimMutation.mutate({ userId: user!.id, walletId: walletId.trim(), couponId: couponId.trim() });
+    claimMutation.mutate({ walletId: walletId.trim(), couponId: couponId.trim() });
   };
 
   const handleQrSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -186,7 +186,6 @@ export function CustomerWalletView() {
     }
 
     qrMutation.mutate({
-      userId: user!.id,
       walletId: walletId.trim(),
       couponId: qrCouponId.trim() || undefined,
     });

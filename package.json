@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test ./lib/server-auth.test.ts"
   },
   "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.57.4",
     "@tanstack/react-query": "^5.87.4",
     "next": "15.5.3",
@@ -25,6 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
     "tailwindcss": "^4",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   }
 }

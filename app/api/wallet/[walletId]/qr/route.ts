@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import { QR_TOKEN_TTL_SECONDS, generateQrTokenValue, hashQrToken } from "@/lib/qr-token";
 import {
@@ -10,7 +11,6 @@ import {
 import { ensureCouponState, transitionWallet } from "@/lib/wallet-service";
 
 type GenerateQrRequestBody = {
-  userId?: string;
   couponId?: string | null;
 };
 
@@ -54,16 +54,23 @@ export async function POST(
     );
   }
 
-  const { userId, couponId: providedCouponId } = body ?? {};
+  const { couponId: providedCouponId } = body ?? {};
 
-  if (!userId) {
-    return NextResponse.json(
-      { error: "userId is required" },
-      { status: 400 },
-    );
+  let auth;
+
+  try {
+    auth = await requireAuthenticatedUser({ requiredRole: "customer" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
   }
 
-  const supabase = getSupabaseAdminClient();
+  const { supabase, user } = auth;
+  const userId = user.id;
+  const adminSupabase = getSupabaseAdminClient();
 
   const { data: wallet, error: walletError } = await supabase
     .from("wallets")
@@ -164,7 +171,7 @@ export async function POST(
   let store;
 
   try {
-    store = await fetchStoreForCoupon(supabase, coupon.id, coupon.merchant_id);
+    store = await fetchStoreForCoupon(adminSupabase, coupon.id, coupon.merchant_id);
   } catch (error) {
     console.error("Failed to load store for QR generation", error);
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 
 type InviteRow = {
@@ -74,7 +75,19 @@ function parseIsoDate(value: unknown) {
 }
 
 export async function GET() {
-  const supabase = getSupabaseAdminClient();
+  let auth;
+
+  try {
+    auth = await requireAuthenticatedUser({ requiredRole: "sales" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
+  }
+
+  const { supabase } = auth;
 
   const { data: inviteRows, error: inviteError } = await supabase
     .from("store_invite_codes")
@@ -160,6 +173,19 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  let auth;
+
+  try {
+    auth = await requireAuthenticatedUser({ requiredRole: "sales" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
+  }
+
+  const { user } = auth;
   let body: CreateInviteBody;
 
   try {
@@ -200,7 +226,10 @@ export async function POST(request: Request) {
   }
 
   const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
-  const createdBy = typeof body.createdBy === "string" ? body.createdBy : null;
+  const createdBy =
+    typeof body.createdBy === "string" && body.createdBy.trim()
+      ? body.createdBy.trim()
+      : user.id;
   const isActive = body.isActive === undefined ? true : Boolean(body.isActive);
 
   const metadata: Record<string, unknown> = {};
