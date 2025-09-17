@@ -1,4 +1,4 @@
-type StatusBadgeProps = {
+export type StatusBadgeProps = {
   status: string;
   label?: string;
 };
@@ -9,13 +9,16 @@ function resolveClasses(status: string) {
   switch (normalized) {
     case "approved":
     case "active":
+    case "success":
       return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200";
     case "rejected":
     case "inactive":
     case "exhausted":
+    case "canceled":
       return "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200";
     case "pending":
     case "grace":
+    case "warning":
       return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
     default:
       return "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200";

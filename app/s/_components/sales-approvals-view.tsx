@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 
-import { StatusBadge } from "./status-badge";
+import { StatusBadge } from "@/app/_components/status-badge";
 
 type CouponApproval = {
   status: "pending" | "approved" | "rejected" | string;
