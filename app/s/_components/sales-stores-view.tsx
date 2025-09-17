@@ -69,7 +69,7 @@ export function SalesStoresView() {
         <div>
           <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Stores</h2>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Track merchant stores and their subscription health at a glance.
+            Monitor the merchant stores assigned to you and keep an eye on their subscription health.
           </p>
         </div>
         <button
@@ -84,15 +84,15 @@ export function SalesStoresView() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Stores</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Assigned Stores</p>
           <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{totals.total}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Active</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Active Assignments</p>
           <p className="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-300">{totals.active}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Grace Period</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">In Grace Period</p>
           <p className="mt-2 text-2xl font-semibold text-amber-600 dark:text-amber-300">{totals.grace}</p>
         </div>
       </div>
@@ -104,7 +104,9 @@ export function SalesStoresView() {
           {(error as Error).message}
         </div>
       ) : stores.length === 0 ? (
-        <p className="text-sm text-slate-600 dark:text-slate-300">No stores found.</p>
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          You don&apos;t have any stores assigned yet. Once an administrator links a store to your account, it will appear here.
+        </p>
       ) : (
         <div className="space-y-4">
           {stores.map((store) => {

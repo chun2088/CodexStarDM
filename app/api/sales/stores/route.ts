@@ -13,6 +13,10 @@ type StoreRow = {
   updated_at: string;
 };
 
+type SalesAssignmentRow = {
+  store: StoreRow | null;
+};
+
 type UserRow = {
   id: string;
   email: string | null;
@@ -42,22 +46,39 @@ export async function GET() {
 
   const { supabase } = auth;
 
-  const { data: storeRows, error: storeError } = await supabase
-    .from("stores")
+  const { data: assignmentRows, error: assignmentError } = await supabase
+    .from("sales_store_assignments")
     .select(
-      "id, owner_id, invite_code_id, name, slug, subscription_status, created_at, updated_at",
+      `store:stores (
+        id,
+        owner_id,
+        invite_code_id,
+        name,
+        slug,
+        subscription_status,
+        created_at,
+        updated_at
+      )`,
     )
+    .eq("sales_user_id", auth.user.id)
     .order("created_at", { ascending: false });
 
-  if (storeError) {
-    console.error("Failed to load stores for sales dashboard", storeError);
+  if (assignmentError) {
+    console.error(
+      "Failed to load store assignments for sales dashboard",
+      assignmentError,
+    );
     return NextResponse.json(
       { error: "Unable to load stores" },
       { status: 500 },
     );
   }
 
-  const stores = (storeRows ?? []) as StoreRow[];
+  const stores = ((assignmentRows ?? []) as SalesAssignmentRow[])
+    .map((row) => row.store)
+    .filter((store): store is StoreRow => Boolean(store));
+
+  stores.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   const ownerIds = Array.from(new Set(stores.map((store) => store.owner_id)));
   const inviteIds = Array.from(
     new Set(
