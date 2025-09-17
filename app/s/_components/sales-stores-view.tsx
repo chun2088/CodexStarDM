@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { StatusBadge } from "./status-badge";
+import { StatusBadge } from "@/app/_components/status-badge";
 
 type SalesStore = {
   id: string;

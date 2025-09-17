@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { StatusBadge } from "./status-badge";
+import { StatusBadge } from "@/app/_components/status-badge";
 
 type InviteCode = {
   id: string;
