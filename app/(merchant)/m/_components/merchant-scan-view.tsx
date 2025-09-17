@@ -4,7 +4,8 @@ import { StatusBadge } from "@/app/_components/status-badge";
 import { ApiError, extractSubscriptionStatus, parseJsonResponse } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { useMutation } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { QrScannerView, useQrScanner } from "./use-qr-scanner";
 
 type ScanVerifyResponse = {
   result: "redeemed" | "expired" | "duplicate" | "mismatched_store" | "not_found" | "invalid";
@@ -44,6 +45,7 @@ export function MerchantScanView() {
   const { user } = useAuth();
   const [token, setToken] = useState("");
   const [feedback, setFeedback] = useState<ScanFeedback>(null);
+  const lastSubmittedRef = useRef<{ value: string; timestamp: number } | null>(null);
 
   const subscriptionStatus = user?.storeSubscriptionStatus ?? null;
   const scanAllowed = isScanEnabled(subscriptionStatus);
@@ -127,6 +129,44 @@ export function MerchantScanView() {
     },
   });
 
+  const handleScannerDetected = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      setToken(trimmed);
+
+      if (!scanAllowed) {
+        setFeedback({ type: "error", message: "Scanning is disabled until the subscription is active." });
+        return;
+      }
+
+      const now = Date.now();
+      const lastSubmission = lastSubmittedRef.current;
+
+      if (mutation.isPending) {
+        return;
+      }
+
+      if (lastSubmission && lastSubmission.value === trimmed && now - lastSubmission.timestamp < 5000) {
+        return;
+      }
+
+      lastSubmittedRef.current = { value: trimmed, timestamp: now };
+      setFeedback(null);
+      mutation.mutate({ token: trimmed });
+    },
+    [mutation, scanAllowed, setFeedback, setToken]
+  );
+
+  const scanner = useQrScanner({
+    enabled: scanAllowed,
+    cooldownMs: 5000,
+    onDetected: handleScannerDetected,
+  });
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -141,6 +181,7 @@ export function MerchantScanView() {
     }
 
     setFeedback(null);
+    lastSubmittedRef.current = { value: formattedToken, timestamp: Date.now() };
     mutation.mutate({ token: formattedToken });
   };
 
@@ -150,60 +191,96 @@ export function MerchantScanView() {
         <div>
           <h1 className="text-3xl font-semibold text-slate-900 dark:text-white">Scan and redeem</h1>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            Input a QR token to simulate the scan-and-redeem flow from the merchant device.
+            Scan or input a QR token to simulate the scan-and-redeem flow from the merchant device.
           </p>
         </div>
         <StatusBadge status={subscriptionStatus ?? "inactive"} />
       </header>
 
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70"
-      >
-        <label className="block space-y-1 text-sm">
-          <span className="font-medium text-slate-700 dark:text-slate-300">QR token</span>
-          <input
-            type="text"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="single-use token"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-slate-500 dark:focus:ring-slate-600"
-            disabled={!scanAllowed || mutation.isPending}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Camera scanner</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Grant camera permission to automatically capture QR tokens.
+            </p>
+          </div>
+          <QrScannerView
+            scanner={scanner}
+            className={!scanAllowed ? "opacity-60" : undefined}
+            disabledMessage={
+              scanAllowed
+                ? undefined
+                : "Scanner is locked until the subscription is active."
+            }
           />
-        </label>
-        <button
-          type="submit"
-          className="inline-flex items-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
-          disabled={!scanAllowed || mutation.isPending}
-        >
-          {mutation.isPending ? "Verifying…" : "Verify token"}
-        </button>
-        {feedback ? (
-          <div
-            className={`rounded-lg border px-3 py-2 text-sm ${
-              feedback.type === "success"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
-                : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"
-            }`}
-          >
-            <p>{feedback.message}</p>
-            {feedback.detail ? (
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{feedback.detail}</p>
+          <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
+            <p>
+              {scanAllowed
+                ? "Use the fallback field if the device camera is unavailable."
+                : "Scanning will resume once your subscription is active."}
+            </p>
+            {scanner.status === "permission_denied" ? (
+              <p>Camera permission was denied. Update browser settings to try again.</p>
             ) : null}
-            {feedback.subscriptionStatus ? (
-              <p className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                Subscription status
-                <StatusBadge status={feedback.subscriptionStatus} />
-              </p>
+            {scanner.status === "no_camera" ? (
+              <p>No compatible camera was detected on this device.</p>
+            ) : null}
+            {scanner.status === "error" && scanner.error ? (
+              <p className="text-rose-500 dark:text-rose-400">{scanner.error}</p>
             ) : null}
           </div>
-        ) : null}
-        {!scanAllowed ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Scan mode is locked while the subscription is inactive. Renew billing to regain access.
-          </p>
-        ) : null}
-      </form>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70"
+        >
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium text-slate-700 dark:text-slate-300">QR token</span>
+            <input
+              type="text"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="single-use token"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-slate-500 dark:focus:ring-slate-600"
+              disabled={!scanAllowed || mutation.isPending}
+            />
+          </label>
+          <button
+            type="submit"
+            className="inline-flex items-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+            disabled={!scanAllowed || mutation.isPending}
+          >
+            {mutation.isPending ? "Verifying…" : "Verify token"}
+          </button>
+          {feedback ? (
+            <div
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                feedback.type === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
+                  : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"
+              }`}
+            >
+              <p>{feedback.message}</p>
+              {feedback.detail ? (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{feedback.detail}</p>
+              ) : null}
+              {feedback.subscriptionStatus ? (
+                <p className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  Subscription status
+                  <StatusBadge status={feedback.subscriptionStatus} />
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {!scanAllowed ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Scan mode is locked while the subscription is inactive. Renew billing to regain access.
+            </p>
+          ) : null}
+        </form>
+      </div>
     </section>
   );
 }
