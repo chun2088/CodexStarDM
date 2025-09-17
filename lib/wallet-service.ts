@@ -8,6 +8,8 @@ type JsonRecord = {
   couponState?: unknown;
 };
 
+export type WalletMetadata = JsonRecord;
+
 export type WalletStatus = "active" | "claimed" | "used" | "expired";
 
 export type WalletRow = {
@@ -42,6 +44,94 @@ function cloneMetadata(metadata: unknown): JsonRecord {
   }
 
   return JSON.parse(JSON.stringify(metadata));
+}
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return null;
+}
+
+function asIsoTimestamp(value: unknown): string | null {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      return null;
+    }
+
+    const parsed = new Date(trimmed);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return null;
+}
+
+const VALID_WALLET_STATUSES: ReadonlySet<WalletStatus> = new Set([
+  "active",
+  "claimed",
+  "used",
+  "expired",
+]);
+
+function asWalletStatus(value: unknown): WalletStatus | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (VALID_WALLET_STATUSES.has(normalized as WalletStatus)) {
+    return normalized as WalletStatus;
+  }
+
+  return null;
+}
+
+export function normalizeWalletMetadata(metadata: unknown): WalletMetadata {
+  return cloneMetadata(metadata);
+}
+
+export type WalletCouponStateRecord = {
+  couponId: string | null;
+  couponCode: string | null;
+  status: WalletStatus | null;
+  claimedAt: string | null;
+  redeemedAt: string | null;
+  lastUpdatedAt: string | null;
+  qrTokenId: string | null;
+  qrTokenExpiresAt: string | null;
+};
+
+export function extractCouponState(metadata: unknown): WalletCouponStateRecord {
+  const normalized = normalizeWalletMetadata(metadata);
+  const { couponState } = ensureCouponState(normalized);
+  const record = couponState as Record<string, unknown>;
+
+  return {
+    couponId: asTrimmedString(record.couponId),
+    couponCode: asTrimmedString(record.couponCode),
+    status: asWalletStatus(record.status),
+    claimedAt: asIsoTimestamp(record.claimedAt),
+    redeemedAt: asIsoTimestamp(record.redeemedAt),
+    lastUpdatedAt: asIsoTimestamp(record.lastUpdatedAt),
+    qrTokenId: asTrimmedString(record.qrTokenId),
+    qrTokenExpiresAt: asIsoTimestamp(record.qrTokenExpiresAt),
+  } satisfies WalletCouponStateRecord;
 }
 
 export async function fetchWallet(
