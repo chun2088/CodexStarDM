@@ -133,10 +133,10 @@ set
   is_active = excluded.is_active,
   updated_at = now();
 
-insert into public.coupons as c (id, merchant_id, store_id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, is_active, is_stackable, metadata, created_at, updated_at)
-select coupon_welcome_id, merchant_id, store_id, 'WELCOME10', 'Welcome 10% Off', 'Get 10% off your first purchase with the app.', 'percentage', 10, 100, 1, now() - interval '7 days', now() + interval '30 days', true, false, jsonb_build_object('category', 'onboarding'), now(), now() from seed_ids
+insert into public.coupons as c (id, merchant_id, store_id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, status, is_active, is_stackable, metadata, created_at, updated_at)
+select coupon_welcome_id, merchant_id, store_id, 'WELCOME10', 'Welcome 10% Off', 'Get 10% off your first purchase with the app.', 'percentage', 10, 100, 1, now() - interval '7 days', now() + interval '30 days', 'active', true, false, jsonb_build_object('category', 'onboarding'), now(), now() from seed_ids
 union all
-select coupon_free_drink_id, merchant_id, store_id, 'FREEDRINK', 'Free Drink Credit', 'Apply for a complimentary drink credit.', 'fixed', 5, 50, 0, now() - interval '1 days', now() + interval '14 days', true, true, jsonb_build_object('category', 'loyalty'), now(), now() from seed_ids
+select coupon_free_drink_id, merchant_id, store_id, 'FREEDRINK', 'Free Drink Credit', 'Apply for a complimentary drink credit.', 'fixed', 5, 50, 0, now() - interval '1 days', now() + interval '14 days', 'active', true, true, jsonb_build_object('category', 'loyalty'), now(), now() from seed_ids
 on conflict (id) do update
 set
   code = excluded.code,
@@ -149,6 +149,7 @@ set
   redeemed_count = excluded.redeemed_count,
   start_at = excluded.start_at,
   end_at = excluded.end_at,
+  status = excluded.status,
   is_active = excluded.is_active,
   is_stackable = excluded.is_stackable,
   metadata = excluded.metadata,

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+type CouponLifecycleStatus = "draft" | "pending" | "active" | "paused" | "archived";
+
 export type CouponApprovalStatus = "pending" | "approved" | "rejected";
 
 export type CouponApprovalHistoryEntry = {
@@ -136,7 +138,7 @@ export async function updateCouponApproval(
 ) {
   const { data: coupon, error: couponError } = await client
     .from("coupons")
-    .select("id, metadata, is_active")
+    .select("id, metadata, is_active, status")
     .eq("id", couponId)
     .maybeSingle();
 
@@ -192,10 +194,33 @@ export async function updateCouponApproval(
 
   metadataClone.salesApproval = nextApproval;
 
-  const shouldActivate = input.status === "approved";
+  const currentStatus = ((coupon.status as string | null) ?? (coupon.is_active ? "active" : "draft"))
+    .toLowerCase() as CouponLifecycleStatus;
+  let nextCouponStatus: CouponLifecycleStatus = currentStatus;
+
+  switch (input.status) {
+    case "approved":
+      nextCouponStatus = "active";
+      break;
+    case "pending":
+      nextCouponStatus = "pending";
+      break;
+    case "rejected":
+      nextCouponStatus = "draft";
+      break;
+    default:
+      nextCouponStatus = currentStatus;
+      break;
+  }
+
+  const shouldActivate = nextCouponStatus === "active";
   const updatePayload: Record<string, unknown> = {
     metadata: metadataClone,
   };
+
+  if (nextCouponStatus !== currentStatus) {
+    updatePayload.status = nextCouponStatus;
+  }
 
   if (shouldActivate !== coupon.is_active) {
     updatePayload.is_active = shouldActivate;
