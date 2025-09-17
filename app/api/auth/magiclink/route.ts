@@ -3,8 +3,15 @@ import { randomBytes } from "node:crypto";
 import { AuthApiError } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+import { recordEvent } from "@/lib/event-service";
+import { sendMagicLinkEmail } from "@/lib/email-service";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
-import { MAGIC_LINK_TOKEN_TTL_MS, storeMagicLinkToken } from "@/lib/token-store";
+import {
+  MAGIC_LINK_TOKEN_TTL_MS,
+  deleteMagicLinkTokenById,
+  storeMagicLinkToken,
+  type MagicLinkTokenContext,
+} from "@/lib/token-store";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -40,6 +47,43 @@ function buildMagicLink(originUrl: string, token: string, redirectTo: string | n
   }
 
   return magicLinkUrl.toString();
+}
+
+function extractRequestContext(request: Request): MagicLinkTokenContext {
+  const headers = request.headers;
+  const forwardedFor = headers.get("x-forwarded-for");
+  const ipAddress = forwardedFor?.split(",")[0]?.trim() || headers.get("x-real-ip") || undefined;
+  const userAgent = headers.get("user-agent") || undefined;
+  const requestId = headers.get("x-request-id") || undefined;
+  const origin = (() => {
+    try {
+      return new URL(request.url).origin;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const context: MagicLinkTokenContext = {};
+
+  if (ipAddress) {
+    context.ipAddress = ipAddress;
+  }
+
+  if (userAgent) {
+    context.userAgent = userAgent;
+  }
+
+  if (requestId) {
+    context.requestId = requestId;
+  }
+
+  if (origin) {
+    context.origin = origin;
+  }
+
+  context.requestUrl = request.url;
+
+  return context;
 }
 
 export async function POST(request: Request) {
@@ -138,18 +182,85 @@ export async function POST(request: Request) {
   }
 
   const token = randomBytes(32).toString("hex");
-  storeMagicLinkToken(token, { email, redirectTo });
+  const requestContext = extractRequestContext(request);
+
+  let storedToken;
+
+  try {
+    storedToken = await storeMagicLinkToken(token, {
+      email,
+      redirectTo,
+      context: requestContext,
+    });
+  } catch (error) {
+    console.error("Failed to persist magic link token", error);
+    return NextResponse.json(
+      { error: "Unable to process magic link request" },
+      {
+        status: 500,
+      },
+    );
+  }
 
   const originUrl = new URL(request.url).origin;
   const magicLink = buildMagicLink(originUrl, token, redirectTo);
+
+  try {
+    await sendMagicLinkEmail({
+      email,
+      magicLink,
+      expiresAt: storedToken.expiresAt,
+      redirectTo,
+    });
+  } catch (error) {
+    console.error("Failed to send magic link email", error);
+
+    try {
+      await deleteMagicLinkTokenById(storedToken.id);
+    } catch (cleanupError) {
+      console.error("Failed to clean up magic link token after email failure", cleanupError);
+    }
+
+    return NextResponse.json(
+      { error: "Unable to deliver magic link email" },
+      {
+        status: 500,
+      },
+    );
+  }
+
+  try {
+    await recordEvent(supabaseClient, {
+      type: "auth.magic_link.issued",
+      source: "api/auth/magiclink",
+      context: {
+        email,
+        userId: supabaseUserId,
+      },
+      details: {
+        redirectTo,
+        tokenId: storedToken.id,
+        tokenHash: storedToken.hashedToken,
+        expiresAt: storedToken.expiresAt,
+        ipAddress: requestContext.ipAddress,
+        userAgent: requestContext.userAgent,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to record magic link issuance event", error);
+  }
 
   return NextResponse.json(
     {
       email,
       magicLink,
       expiresIn: Math.floor(MAGIC_LINK_TOKEN_TTL_MS / SECONDS_IN_MS),
+      expiresAt: storedToken.expiresAt,
       redirectTo,
       userId: supabaseUserId,
+      delivery: {
+        status: "sent",
+      },
     },
     {
       status: 201,
