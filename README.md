@@ -23,3 +23,10 @@ The billing endpoints rely on Toss Payments credentials. Configure the following
 
 - `TOSS_SECRET_KEY` (required) — Toss Payments secret key used for server-to-server requests.
 - `TOSS_API_BASE_URL` (optional) — Override the Toss API base URL; defaults to `https://api.tosspayments.com`.
+
+Authentication and magic-link email delivery require these additional settings:
+
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — Used by the server routes to manage Supabase Auth users and sessions.
+- `RESEND_API_KEY` — API key for sending transactional emails via [Resend](https://resend.com/).
+- `MAGIC_LINK_EMAIL_FROM` — Email address (e.g. `Support <support@example.com>`) used as the sender for magic link messages.
+- `MAGIC_LINK_EMAIL_SUBJECT` (optional) — Custom subject line for magic link emails; defaults to `"Your sign-in link"`.
