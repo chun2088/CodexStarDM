@@ -159,13 +159,14 @@ export async function POST(request: Request) {
     await markInviteCodeUsed(adminSupabase, invite);
   } catch (error) {
     console.error("Failed to mark invite code as used", error);
-    await adminSupabase
+    const { error: deleteError } = await adminSupabase
       .from("stores")
       .delete()
-      .eq("id", store.id)
-      .catch((deleteError) => {
-        console.error("Failed to rollback store creation after invite failure", deleteError);
-      });
+      .eq("id", store.id);
+
+    if (deleteError) {
+      console.error("Failed to rollback store creation after invite failure", deleteError);
+    }
     return NextResponse.json(
       { error: "Invite code could not be redeemed" },
       { status: 409 },

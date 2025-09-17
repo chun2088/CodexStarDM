@@ -24,9 +24,9 @@ function extractCouponCodeFromMetadata(metadata: unknown) {
 
 export async function POST(
   request: Request,
-  { params }: { params: { walletId: string } },
+  { params }: { params: Promise<{ walletId: string }> },
 ) {
-  const walletId = params.walletId;
+  const { walletId } = await params;
 
   if (!walletId) {
     return NextResponse.json(

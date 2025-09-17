@@ -65,10 +65,5 @@ export function createSupabaseRouteHandlerClient() {
   return createRouteHandlerClient({ cookies }, {
     supabaseUrl,
     supabaseKey: supabaseAnonKey,
-    options: {
-      auth: {
-        persistSession: false,
-      },
-    },
   });
 }

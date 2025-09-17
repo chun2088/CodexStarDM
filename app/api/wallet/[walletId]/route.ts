@@ -102,9 +102,9 @@ function sortEntries(entries: WalletCouponEntryResponse[]) {
 
 export async function GET(
   _request: Request,
-  { params }: { params: { walletId: string } },
+  { params }: { params: Promise<{ walletId: string }> },
 ) {
-  const walletId = params.walletId;
+  const { walletId } = await params;
 
   if (!walletId) {
     return NextResponse.json({ error: "walletId is required" }, { status: 400 });

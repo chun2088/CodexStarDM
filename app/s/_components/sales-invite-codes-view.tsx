@@ -184,10 +184,10 @@ export function SalesInviteCodesView() {
         </div>
         <button
           type="submit"
-          disabled={mutation.isLoading}
+          disabled={mutation.isPending}
           className="inline-flex items-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:opacity-70 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
         >
-          {mutation.isLoading ? "Issuing…" : "Issue Invite Code"}
+          {mutation.isPending ? "Issuing…" : "Issue Invite Code"}
         </button>
       </form>
 

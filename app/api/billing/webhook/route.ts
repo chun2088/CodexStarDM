@@ -174,7 +174,7 @@ export async function POST(request: Request) {
 
   const { data: subscription, error: subscriptionError } = await supabase
     .from("store_subscriptions")
-    .select("id, store_id, plan_id, current_period_end")
+    .select("id, store_id, plan_id, current_period_end, grace_until")
     .eq("store_id", storeId)
     .maybeSingle();
 
