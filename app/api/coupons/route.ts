@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { recordEvent } from "@/lib/event-service";
+import { resolveCouponApproval, type CouponApprovalState } from "@/lib/coupon-service";
 import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import {
@@ -30,6 +31,14 @@ const MAX_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 1000;
 
 const MERCHANT_EDITABLE_STATUSES: ReadonlySet<CouponStatus> = new Set(["draft", "pending"]);
+
+const MERCHANT_STATUS_TRANSITIONS: Record<CouponStatus, ReadonlySet<CouponStatus>> = {
+  draft: new Set(["draft", "pending", "archived"]),
+  pending: new Set(["pending", "draft", "archived"]),
+  active: new Set(["active", "paused", "archived"]),
+  paused: new Set(["paused", "active", "archived"]),
+  archived: new Set(["archived"]),
+};
 
 const STATUS_SEQUENCE: ReadonlySet<CouponStatus> = new Set([
   "draft",
@@ -207,24 +216,9 @@ function isMerchantEditable(status: CouponStatus) {
   return MERCHANT_EDITABLE_STATUSES.has(status);
 }
 
-function canMerchantTransition(current: CouponStatus, next: CouponStatus) {
-  if (!isMerchantEditable(current) || !isMerchantEditable(next)) {
-    return false;
-  }
-
-  if (current === next) {
-    return true;
-  }
-
-  if (current === "draft" && next === "pending") {
-    return true;
-  }
-
-  if (current === "pending" && next === "draft") {
-    return true;
-  }
-
-  return false;
+function canMerchantChangeStatus(current: CouponStatus, next: CouponStatus) {
+  const allowed = MERCHANT_STATUS_TRANSITIONS[current];
+  return Boolean(allowed && allowed.has(next));
 }
 
 async function authenticateMerchant(): Promise<AuthenticatedMerchant | { error: NextResponse }> {
@@ -280,6 +274,8 @@ type CouponRow = {
   metadata: Record<string, unknown> | null;
   store_id: string | null;
   merchant_id: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type CouponPayload = {
@@ -324,13 +320,33 @@ function isClaimable(coupon: CouponRow, now: Date) {
   return true;
 }
 
-export async function GET() {
+type MerchantCouponPayload = {
+  id: string;
+  code: string;
+  name: string | null;
+  description: string | null;
+  discountType: string;
+  discountValue: number;
+  maxRedemptions: number | null;
+  redeemedCount: number;
+  startAt: string | null;
+  endAt: string | null;
+  status: CouponStatus;
+  isActive: boolean;
+  approval: CouponApprovalState;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  storeId: string | null;
+};
+
+async function fetchAvailableCoupons() {
   const supabase = getSupabaseAdminClient();
 
   const { data, error } = await supabase
     .from("coupons")
     .select(
-      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, status, is_active, metadata, store_id, merchant_id",
+      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, status, is_active, metadata, store_id, merchant_id, created_at, updated_at",
     );
 
   if (error) {
@@ -407,6 +423,86 @@ export async function GET() {
   }
 
   return NextResponse.json({ coupons });
+}
+
+async function fetchMerchantCoupons(request: Request) {
+  const authResult = await authenticateMerchant();
+
+  if ("error" in authResult) {
+    return authResult.error;
+  }
+
+  const { merchantId, supabase } = authResult;
+  const url = new URL(request.url);
+  const storeIdParam = url.searchParams.get("storeId");
+
+  let store: StoreRecord;
+
+  try {
+    store = await resolveMerchantStore(supabase, merchantId, storeIdParam);
+  } catch {
+    return NextResponse.json({ error: "Store not found for merchant" }, { status: 404 });
+  }
+
+  const query = supabase
+    .from("coupons")
+    .select(
+      "id, code, name, description, discount_type, discount_value, max_redemptions, redeemed_count, start_at, end_at, status, is_active, metadata, store_id, merchant_id, created_at, updated_at",
+    )
+    .eq("merchant_id", merchantId)
+    .order("created_at", { ascending: false });
+
+  if (storeIdParam) {
+    query.eq("store_id", storeIdParam);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Failed to load merchant coupons", error);
+    return NextResponse.json({ error: "Unable to load coupons" }, { status: 500 });
+  }
+
+  const couponRows = (data ?? []) as CouponRow[];
+  const coupons: MerchantCouponPayload[] = couponRows.map((coupon) => ({
+    id: coupon.id,
+    code: coupon.code,
+    name: coupon.name,
+    description: coupon.description,
+    discountType: coupon.discount_type,
+    discountValue: coupon.discount_value,
+    maxRedemptions: coupon.max_redemptions,
+    redeemedCount: coupon.redeemed_count,
+    startAt: coupon.start_at,
+    endAt: coupon.end_at,
+    status: coupon.status,
+    isActive: coupon.is_active,
+    approval: resolveCouponApproval(coupon.metadata, coupon.is_active),
+    metadata: coupon.metadata,
+    createdAt: coupon.created_at,
+    updatedAt: coupon.updated_at,
+    storeId: coupon.store_id,
+  }));
+
+  return NextResponse.json({
+    coupons,
+    store: {
+      id: store.id,
+      name: store.name ?? null,
+      subscriptionStatus: store.subscription_status,
+    },
+  });
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const scope = url.searchParams.get("scope");
+
+  if (scope === "merchant") {
+    return fetchMerchantCoupons(request);
+  }
+
+  return fetchAvailableCoupons();
 }
 
 type CreateCouponRequest = {
@@ -615,13 +711,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Store cannot be reassigned for an existing coupon" }, { status: 400 });
   }
 
-  if (!isMerchantEditable(couponRow.status)) {
-    return NextResponse.json(
-      { error: `Coupons in ${couponRow.status} status cannot be edited by merchants` },
-      { status: 409 },
-    );
-  }
-
   let store: StoreRecord;
 
   try {
@@ -645,88 +734,116 @@ export async function PATCH(request: Request) {
 
   const updatePayload: Record<string, unknown> = {};
   const changedFields: string[] = [];
+  const editableFieldKeys: (keyof UpdateCouponRequest)[] = [
+    "code",
+    "name",
+    "description",
+    "discountType",
+    "discountValue",
+    "maxRedemptions",
+    "startAt",
+    "endAt",
+  ];
+
+  const wantsEditableFields = editableFieldKeys.some((key) =>
+    Object.prototype.hasOwnProperty.call(body, key),
+  );
+  const wantsStatusUpdate = Object.prototype.hasOwnProperty.call(body, "status");
+
+  if (wantsEditableFields && !isMerchantEditable(couponRow.status)) {
+    return NextResponse.json(
+      { error: `Coupons in ${couponRow.status} status cannot be edited by merchants` },
+      { status: 409 },
+    );
+  }
+
+  let nextStartAt = couponRow.start_at;
+  let nextEndAt = couponRow.end_at;
 
   try {
-    if (Object.prototype.hasOwnProperty.call(body, "code")) {
-      const nextCode = normalizeCode(body.code);
-      if (nextCode !== couponRow.code) {
-        updatePayload.code = nextCode;
-        changedFields.push("code");
+    if (wantsEditableFields) {
+      if (Object.prototype.hasOwnProperty.call(body, "code")) {
+        const nextCode = normalizeCode(body.code);
+        if (nextCode !== couponRow.code) {
+          updatePayload.code = nextCode;
+          changedFields.push("code");
+        }
       }
+
+      if (Object.prototype.hasOwnProperty.call(body, "name")) {
+        const nextName = normalizeName(body.name);
+        if (nextName !== (couponRow.name ?? "")) {
+          updatePayload.name = nextName;
+          changedFields.push("name");
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, "description")) {
+        const nextDescription = normalizeDescription(body.description);
+        if (nextDescription !== couponRow.description) {
+          updatePayload.description = nextDescription;
+          changedFields.push("description");
+        }
+      }
+
+      let effectiveDiscountType = couponRow.discount_type as CouponDiscountType;
+
+      if (Object.prototype.hasOwnProperty.call(body, "discountType")) {
+        const nextType = normalizeDiscountType(body.discountType);
+        if (nextType !== couponRow.discount_type) {
+          updatePayload.discount_type = nextType;
+          changedFields.push("discount_type");
+        }
+        effectiveDiscountType = nextType;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, "discountValue")) {
+        const nextValue = normalizeDiscountValue(body.discountValue, effectiveDiscountType);
+        if (nextValue !== couponRow.discount_value) {
+          updatePayload.discount_value = nextValue;
+          changedFields.push("discount_value");
+        }
+      } else if (Object.prototype.hasOwnProperty.call(body, "discountType")) {
+        normalizeDiscountValue(couponRow.discount_value, effectiveDiscountType);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, "maxRedemptions")) {
+        const nextMax = normalizeMaxRedemptions(body.maxRedemptions);
+        if (nextMax !== couponRow.max_redemptions) {
+          updatePayload.max_redemptions = nextMax;
+          changedFields.push("max_redemptions");
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, "startAt")) {
+        nextStartAt = normalizeDateInput(body.startAt, "startAt") ?? null;
+        if (nextStartAt !== couponRow.start_at) {
+          updatePayload.start_at = nextStartAt;
+          changedFields.push("start_at");
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, "endAt")) {
+        nextEndAt = normalizeDateInput(body.endAt, "endAt") ?? null;
+        if (nextEndAt !== couponRow.end_at) {
+          updatePayload.end_at = nextEndAt;
+          changedFields.push("end_at");
+        }
+      }
+
+      validateWindow(
+        Object.prototype.hasOwnProperty.call(body, "startAt")
+          ? (updatePayload.start_at as string | null | undefined) ?? nextStartAt
+          : nextStartAt,
+        Object.prototype.hasOwnProperty.call(body, "endAt")
+          ? (updatePayload.end_at as string | null | undefined) ?? nextEndAt
+          : nextEndAt,
+      );
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "name")) {
-      const nextName = normalizeName(body.name);
-      if (nextName !== (couponRow.name ?? "")) {
-        updatePayload.name = nextName;
-        changedFields.push("name");
-      }
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, "description")) {
-      const nextDescription = normalizeDescription(body.description);
-      if (nextDescription !== couponRow.description) {
-        updatePayload.description = nextDescription;
-        changedFields.push("description");
-      }
-    }
-
-    let effectiveDiscountType = couponRow.discount_type as CouponDiscountType;
-
-    if (Object.prototype.hasOwnProperty.call(body, "discountType")) {
-      const nextType = normalizeDiscountType(body.discountType);
-      if (nextType !== couponRow.discount_type) {
-        updatePayload.discount_type = nextType;
-        changedFields.push("discount_type");
-      }
-      effectiveDiscountType = nextType;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, "discountValue")) {
-      const nextValue = normalizeDiscountValue(body.discountValue, effectiveDiscountType);
-      if (nextValue !== couponRow.discount_value) {
-        updatePayload.discount_value = nextValue;
-        changedFields.push("discount_value");
-      }
-    } else if (updatePayload.discount_type) {
-      normalizeDiscountValue(couponRow.discount_value, effectiveDiscountType);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, "maxRedemptions")) {
-      const nextMax = normalizeMaxRedemptions(body.maxRedemptions);
-      if (nextMax !== couponRow.max_redemptions) {
-        updatePayload.max_redemptions = nextMax;
-        changedFields.push("max_redemptions");
-      }
-    }
-
-    let nextStartAt = couponRow.start_at;
-    let nextEndAt = couponRow.end_at;
-
-    if (Object.prototype.hasOwnProperty.call(body, "startAt")) {
-      nextStartAt = normalizeDateInput(body.startAt, "startAt") ?? null;
-      if (nextStartAt !== couponRow.start_at) {
-        updatePayload.start_at = nextStartAt;
-        changedFields.push("start_at");
-      }
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, "endAt")) {
-      nextEndAt = normalizeDateInput(body.endAt, "endAt") ?? null;
-      if (nextEndAt !== couponRow.end_at) {
-        updatePayload.end_at = nextEndAt;
-        changedFields.push("end_at");
-      }
-    }
-
-    validateWindow(
-      Object.prototype.hasOwnProperty.call(body, "startAt") ? (updatePayload.start_at as string | null | undefined) ?? nextStartAt : nextStartAt,
-      Object.prototype.hasOwnProperty.call(body, "endAt") ? (updatePayload.end_at as string | null | undefined) ?? nextEndAt : nextEndAt,
-    );
-
-    if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    if (wantsStatusUpdate) {
       const providedStatus = normalizeStatus(body.status);
-      if (!canMerchantTransition(couponRow.status, providedStatus)) {
+      if (!canMerchantChangeStatus(couponRow.status, providedStatus)) {
         throw new Error("Invalid status transition for merchant");
       }
 
@@ -742,20 +859,24 @@ export async function PATCH(request: Request) {
 
   const nextStatus = (updatePayload.status as CouponStatus | undefined) ?? couponRow.status;
 
-  if (!canMerchantTransition(couponRow.status, nextStatus)) {
-    return NextResponse.json({ error: "Coupons can only be moved between draft and pending by merchants" }, { status: 409 });
+  if (wantsStatusUpdate && !canMerchantChangeStatus(couponRow.status, nextStatus)) {
+    return NextResponse.json(
+      { error: `Coupons cannot be moved from ${couponRow.status} to ${nextStatus}` },
+      { status: 409 },
+    );
   }
 
   if (Object.keys(updatePayload).length === 0) {
     return NextResponse.json({ error: "No changes detected" }, { status: 400 });
   }
 
-  if (!updatePayload.status) {
-    updatePayload.status = couponRow.status;
-  }
+  const shouldBeActive = nextStatus === "active";
 
-  if (!Object.prototype.hasOwnProperty.call(updatePayload, "is_active")) {
-    updatePayload.is_active = (updatePayload.status as CouponStatus) === "active";
+  if (
+    !Object.prototype.hasOwnProperty.call(updatePayload, "is_active") &&
+    shouldBeActive !== couponRow.is_active
+  ) {
+    updatePayload.is_active = shouldBeActive;
   }
 
   const { data: updatedCoupon, error: updateError } = await supabase
