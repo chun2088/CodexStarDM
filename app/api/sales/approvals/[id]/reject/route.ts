@@ -4,16 +4,35 @@ import {
   CouponNotFoundError,
   updateCouponApproval,
 } from "@/lib/coupon-service";
-import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import {
+  authorizationErrorResponse,
+  isAuthorizationError,
+  requireAuthenticatedUser,
+} from "@/lib/server-auth";
+
+type RequireAuthenticatedUser = typeof requireAuthenticatedUser;
+
+type RejectDependencies = {
+  requireAuthenticatedUser: RequireAuthenticatedUser;
+  updateCouponApproval: typeof updateCouponApproval;
+};
+
+const rejectDependencies: RejectDependencies = {
+  requireAuthenticatedUser,
+  updateCouponApproval,
+};
 
 type RejectRequestBody = {
   decidedBy?: string | null;
   reason?: string | null;
 };
 
-export async function POST(
+type RouteContext = { params: Promise<{ id: string }> };
+
+export async function handleReject(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: RouteContext,
+  deps: RejectDependencies = rejectDependencies,
 ) {
   const { id: couponId } = await params;
 
@@ -47,10 +66,22 @@ export async function POST(
 
   const decidedBy = body.decidedBy ?? null;
 
-  const supabase = getSupabaseAdminClient();
+  let auth: Awaited<ReturnType<RequireAuthenticatedUser>>;
 
   try {
-    const approval = await updateCouponApproval(supabase, couponId, {
+    auth = await deps.requireAuthenticatedUser({ requiredRole: "sales" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
+  }
+
+  const { supabase } = auth;
+
+  try {
+    const approval = await deps.updateCouponApproval(supabase, couponId, {
       status: "rejected",
       decidedBy,
       reason,
@@ -71,4 +102,8 @@ export async function POST(
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request, context: RouteContext) {
+  return handleReject(request, context);
 }
