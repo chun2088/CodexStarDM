@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recordEvent } from "@/lib/event-service";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import {
   calculatePeriodEnd,
@@ -56,6 +57,53 @@ function safeDate(value: string) {
   }
 
   return date;
+}
+
+function asTrimmedString(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function coerceNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeCurrency(value: unknown) {
+  const trimmed = asTrimmedString(value);
+  return trimmed ? trimmed.toUpperCase() : null;
+}
+
+function parseOptionalDate(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
 }
 
 export async function POST(request: Request) {
@@ -258,25 +306,136 @@ export async function POST(request: Request) {
   }
 
   if (CANCEL_EVENTS.has(eventType)) {
-    const nowIso = new Date().toISOString();
-    const canceledAt = coerceTimestamp(eventData.canceledAt ?? eventData.deletedAt, nowIso);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const canceledAt = coerceTimestamp(
+      (eventData.canceledAt as string | undefined) ??
+        (eventData.deletedAt as string | undefined) ??
+        (eventData.cancelAt as string | undefined) ??
+        (eventData.cancel_at as string | undefined),
+      nowIso,
+    );
+    const canceledDate = safeDate(canceledAt);
+
+    const graceKeys = [
+      "graceUntil",
+      "grace_until",
+      "cancelAt",
+      "cancel_at",
+      "cancelAtUtc",
+      "cancel_at_utc",
+      "cancellationDate",
+      "cancellation_date",
+      "currentPeriodEnd",
+      "periodEnd",
+    ];
+
+    let graceUntilIso: string | null = null;
+
+    for (const key of graceKeys) {
+      const candidate = parseOptionalDate((eventData as Record<string, unknown>)[key]);
+      if (candidate) {
+        const effective = candidate < canceledDate ? canceledDate : candidate;
+        graceUntilIso = effective.toISOString();
+        break;
+      }
+    }
+
+    if (!graceUntilIso && subscription?.grace_until) {
+      const graceDate = safeDate(subscription.grace_until);
+      const effective = graceDate < canceledDate ? canceledDate : graceDate;
+      graceUntilIso = effective.toISOString();
+    } else if (!graceUntilIso && subscription?.current_period_end) {
+      const periodEnd = safeDate(subscription.current_period_end);
+      const effective = periodEnd < canceledDate ? canceledDate : periodEnd;
+      graceUntilIso = effective.toISOString();
+    }
+
+    const rawRefundAmount = coerceNumber(
+      (eventData.refundAmount as unknown) ??
+        (eventData.cancelAmount as unknown) ??
+        (eventData.canceledAmount as unknown) ??
+        (eventData.cancellationAmount as unknown) ??
+        (eventData.refundableAmount as unknown),
+    );
+    const refundAmount = rawRefundAmount !== null && rawRefundAmount > 0 ? rawRefundAmount : null;
+
+    const refundCurrencyCandidates = [
+      eventData.refundCurrency,
+      eventData.currency,
+      eventData.paymentCurrency,
+    ];
+
+    let refundCurrency: string | null = null;
+
+    if (refundAmount) {
+      for (const candidate of refundCurrencyCandidates) {
+        const normalized = normalizeCurrency(candidate);
+        if (normalized) {
+          refundCurrency = normalized;
+          break;
+        }
+      }
+    }
+
+    const refundNote =
+      asTrimmedString(eventData.reason) ??
+      asTrimmedString(eventData.cancelReason) ??
+      asTrimmedString(eventData.cancellationReason);
+
+    const cancellationMetadata: Record<string, unknown> = {
+      lastWebhookEvent: eventType,
+    };
+
+    const lastCancellation: Record<string, unknown> = {
+      at: canceledDate.toISOString(),
+      source: eventType,
+    };
+
+    if (graceUntilIso) {
+      lastCancellation.graceUntil = graceUntilIso;
+    }
+
+    if (refundAmount) {
+      lastCancellation.refund = {
+        amount: refundAmount,
+        currency: refundCurrency ?? null,
+        ...(refundNote ? { note: refundNote } : {}),
+      };
+    }
+
+    cancellationMetadata.lastCancellation = lastCancellation;
+
+    const eventDetails: Record<string, unknown> = {
+      billingKey,
+    };
+
+    if (graceUntilIso) {
+      eventDetails.graceUntil = graceUntilIso;
+    }
+
+    if (refundAmount) {
+      eventDetails.refundAmount = refundAmount;
+      if (refundCurrency) {
+        eventDetails.refundCurrency = refundCurrency;
+      }
+      if (refundNote) {
+        eventDetails.refundNote = refundNote;
+      }
+    }
 
     try {
-      await upsertStoreSubscription(supabase, storeId, {
+      const subscriptionRecord = await upsertStoreSubscription(supabase, storeId, {
         status: "canceled",
         planId: subscription?.plan_id ?? null,
         billingProfileId: billingProfile.id,
-        graceUntil: null,
+        graceUntil: graceUntilIso,
         canceledAt,
-        metadataPatch: {
-          lastWebhookEvent: eventType,
-        },
+        metadataPatch: cancellationMetadata,
         event: {
           type: `billing.webhook_${eventType.toLowerCase()}`,
-          at: safeDate(canceledAt).toISOString(),
-          details: {
-            billingKey,
-          },
+          at: canceledDate.toISOString(),
+          details: eventDetails,
         },
         eventSource: "api.billing.webhook",
       });
@@ -288,6 +447,45 @@ export async function POST(request: Request) {
 
       if (revokeError) {
         console.error("Failed to revoke billing profile after cancellation", revokeError);
+      }
+
+      try {
+        const invoiceDetails: Record<string, unknown> = {
+          type: refundAmount ? "refund" : "cancellation",
+          issuedAt: canceledDate.toISOString(),
+          sourceEvent: eventType,
+        };
+
+        if (refundAmount !== null) {
+          invoiceDetails.amount = refundAmount;
+        }
+
+        if (refundCurrency) {
+          invoiceDetails.currency = refundCurrency;
+        }
+
+        if (graceUntilIso) {
+          invoiceDetails.graceUntil = graceUntilIso;
+        }
+
+        if (refundNote) {
+          invoiceDetails.note = refundNote;
+        }
+
+        await recordEvent(supabase, {
+          type: refundAmount ? "billing.invoice_refunded" : "billing.invoice_canceled",
+          at: canceledDate.toISOString(),
+          details: invoiceDetails,
+          context: {
+            storeId,
+            subscriptionId: subscriptionRecord.id,
+            planId: subscriptionRecord.plan_id,
+            billingProfileId: subscriptionRecord.billing_profile_id,
+          },
+          source: "api.billing.webhook",
+        });
+      } catch (invoiceError) {
+        console.error("Failed to record cancellation invoice event from webhook", invoiceError);
       }
 
       return NextResponse.json({ status: "canceled" }, { status: 200 });
