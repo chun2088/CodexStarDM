@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveCouponApproval } from "@/lib/coupon-service";
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 
 type CouponRow = {
@@ -33,6 +34,16 @@ type UserRow = {
 };
 
 export async function GET() {
+  try {
+    await requireAuthenticatedUser({ requiredRole: "sales" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
+
+    throw error;
+  }
+
   const supabase = getSupabaseAdminClient();
 
   const { data: couponRows, error: couponError } = await supabase

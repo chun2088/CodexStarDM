@@ -12,6 +12,7 @@ with seed_ids as (
     '22222222-2222-2222-2222-222222222222'::uuid as merchant_id,
     '33333333-3333-3333-3333-333333333333'::uuid as customer_id,
     '44444444-4444-4444-4444-444444444444'::uuid as subscriber_id,
+    '55555555-aaaa-bbbb-cccc-dddddddddddd'::uuid as sales_id,
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid as wallet_admin_id,
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid as wallet_merchant_id,
     'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid as wallet_customer_id,
@@ -31,7 +32,8 @@ with seed_ids as (
     'aaaa0000-bbbb-cccc-dddd-eeeeffff0002'::uuid as store_id,
     'aaaa0000-bbbb-cccc-dddd-eeeeffff0003'::uuid as store_billing_profile_id,
     'aaaa0000-bbbb-cccc-dddd-eeeeffff0004'::uuid as store_subscription_id,
-    'aaaa0000-bbbb-cccc-dddd-eeeeffff0005'::uuid as event_seed_id
+    'aaaa0000-bbbb-cccc-dddd-eeeeffff0005'::uuid as event_seed_id,
+    'bbbb0000-cccc-dddd-eeee-ffff00001111'::uuid as sales_assignment_id
 )
 insert into public.users as u (id, email, role, full_name, avatar_url, metadata, created_at, updated_at)
 select admin_id, 'admin@example.com', 'admin', 'Ada Admin', null, jsonb_build_object('seed', true, 'title', 'Operations Lead'), now(), now() from seed_ids
@@ -41,6 +43,8 @@ union all
 select customer_id, 'customer@example.com', 'customer', 'Cora Customer', null, jsonb_build_object('loyalty_level', 'gold'), now(), now() from seed_ids
 union all
 select subscriber_id, 'subscriber@example.com', 'customer', 'Sam Subscriber', null, jsonb_build_object('loyalty_level', 'silver'), now(), now() from seed_ids
+union all
+select sales_id, 'sales@example.com', 'sales', 'Sora Sales', null, jsonb_build_object('team', 'Field Ops'), now(), now() from seed_ids
 on conflict (id) do update
 set
   email = excluded.email,
@@ -113,6 +117,15 @@ set
   current_period_end = excluded.current_period_end,
   grace_until = excluded.grace_until,
   canceled_at = excluded.canceled_at,
+  metadata = excluded.metadata,
+  updated_at = now();
+
+insert into public.sales_store_assignments as ssa (id, sales_user_id, store_id, metadata, created_at, updated_at)
+select sales_assignment_id, sales_id, store_id, jsonb_build_object('seed', true), now(), now() from seed_ids
+on conflict (id) do update
+set
+  sales_user_id = excluded.sales_user_id,
+  store_id = excluded.store_id,
   metadata = excluded.metadata,
   updated_at = now();
 

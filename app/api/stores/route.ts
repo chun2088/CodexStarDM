@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
 import {
   ensureInviteIsUsable,
@@ -12,7 +13,6 @@ const SLUG_REGEX = /[^a-z0-9-]+/g;
 
 type CreateStoreRequest = {
   inviteCode?: string;
-  ownerId?: string;
   name?: string;
   slug?: string | null;
   metadata?: Record<string, unknown>;
@@ -36,18 +36,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { inviteCode, ownerId, name, slug: providedSlug, metadata } = body ?? {};
+  const { inviteCode, name, slug: providedSlug, metadata } = body ?? {};
 
   if (!inviteCode || typeof inviteCode !== "string") {
     return NextResponse.json(
       { error: "inviteCode is required" },
-      { status: 400 },
-    );
-  }
-
-  if (!ownerId || typeof ownerId !== "string") {
-    return NextResponse.json(
-      { error: "ownerId is required" },
       { status: 400 },
     );
   }
@@ -59,39 +52,31 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = getSupabaseAdminClient();
+  let auth;
 
-  const { data: owner, error: ownerError } = await supabase
-    .from("users")
-    .select("id")
-    .eq("id", ownerId)
-    .maybeSingle();
+  try {
+    auth = await requireAuthenticatedUser({ requiredRole: "merchant" });
+  } catch (error) {
+    if (isAuthorizationError(error)) {
+      return authorizationErrorResponse(error);
+    }
 
-  if (ownerError) {
-    console.error("Failed to look up owner", ownerError);
-    return NextResponse.json(
-      { error: "Unable to validate owner" },
-      { status: 500 },
-    );
+    throw error;
   }
 
-  if (!owner) {
-    return NextResponse.json(
-      { error: "Owner not found" },
-      { status: 404 },
-    );
-  }
+  const { supabase: merchantSupabase, user } = auth;
+  const ownerId = user.id;
+  const adminSupabase = getSupabaseAdminClient();
 
   const normalizedSlug = providedSlug
     ? generateSlug(providedSlug)
     : generateSlug(name);
-
   const slugValue = normalizedSlug || null;
 
   let invite;
 
   try {
-    invite = await findInviteCode(supabase, inviteCode);
+    invite = await findInviteCode(adminSupabase, inviteCode);
   } catch (error) {
     console.error("Failed to load invite code", error);
     return NextResponse.json(
@@ -116,7 +101,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: existingStore, error: storeLookupError } = await supabase
+  const { data: existingStore, error: storeLookupError } = await merchantSupabase
     .from("stores")
     .select("id")
     .eq("owner_id", ownerId)
@@ -142,7 +127,7 @@ export async function POST(request: Request) {
       ? { ...metadata, createdByInvite: invite.code }
       : { createdByInvite: invite.code };
 
-  const { data: store, error: storeError } = await supabase
+  const { data: store, error: storeError } = await merchantSupabase
     .from("stores")
     .insert({
       owner_id: ownerId,
@@ -171,12 +156,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    await markInviteCodeUsed(supabase, invite);
+    await markInviteCodeUsed(adminSupabase, invite);
   } catch (error) {
     console.error("Failed to mark invite code as used", error);
-    await supabase.from("stores").delete().eq("id", store.id).catch((deleteError) => {
-      console.error("Failed to rollback store creation after invite failure", deleteError);
-    });
+    await adminSupabase
+      .from("stores")
+      .delete()
+      .eq("id", store.id)
+      .catch((deleteError) => {
+        console.error("Failed to rollback store creation after invite failure", deleteError);
+      });
     return NextResponse.json(
       { error: "Invite code could not be redeemed" },
       { status: 409 },
@@ -186,7 +175,7 @@ export async function POST(request: Request) {
   const nowIso = new Date().toISOString();
 
   try {
-    await upsertStoreSubscription(supabase, store.id, {
+    await upsertStoreSubscription(adminSupabase, store.id, {
       status: "grace",
       planId: null,
       billingProfileId: null,
