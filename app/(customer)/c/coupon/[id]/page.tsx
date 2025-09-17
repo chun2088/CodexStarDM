@@ -7,9 +7,13 @@ export const metadata: Metadata = {
 };
 
 type CouponDetailPageProps = {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 };
 
-export default function CustomerCouponDetailPage({ params }: CouponDetailPageProps) {
-  return <CustomerCouponDetail couponId={params.id} />;
+export default async function CustomerCouponDetailPage({
+  params,
+}: CouponDetailPageProps) {
+  const { id } = await params;
+
+  return <CustomerCouponDetail couponId={id} />;
 }

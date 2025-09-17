@@ -12,9 +12,9 @@ type ApproveRequestBody = {
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const couponId = params.id;
+  const { id: couponId } = await params;
 
   if (!couponId) {
     return NextResponse.json(

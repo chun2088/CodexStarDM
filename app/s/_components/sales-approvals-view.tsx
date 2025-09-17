@@ -326,20 +326,20 @@ export function SalesApprovalsView() {
                       <button
                         type="button"
                         onClick={() => handleApprove(coupon.id)}
-                        disabled={approveMutation.isLoading && approveMutation.variables === coupon.id}
+                        disabled={approveMutation.isPending && approveMutation.variables === coupon.id}
                         className="inline-flex items-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-70"
                       >
-                        {approveMutation.isLoading && approveMutation.variables === coupon.id
+                        {approveMutation.isPending && approveMutation.variables === coupon.id
                           ? "Approving…"
                           : "Approve"}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleReject(coupon.id)}
-                        disabled={rejectMutation.isLoading && rejectMutation.variables === coupon.id}
+                        disabled={rejectMutation.isPending && rejectMutation.variables === coupon.id}
                         className="inline-flex items-center rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-70"
                       >
-                        {rejectMutation.isLoading && rejectMutation.variables === coupon.id
+                        {rejectMutation.isPending && rejectMutation.variables === coupon.id
                           ? "Processing…"
                           : "Reject"}
                       </button>
@@ -362,10 +362,10 @@ export function SalesApprovalsView() {
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="submit"
-                            disabled={rejectMutation.isLoading}
+                            disabled={rejectMutation.isPending}
                             className="inline-flex items-center rounded-md bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-70"
                           >
-                            {rejectMutation.isLoading ? "Submitting…" : "Submit rejection"}
+                            {rejectMutation.isPending ? "Submitting…" : "Submit rejection"}
                           </button>
                           <button
                             type="button"

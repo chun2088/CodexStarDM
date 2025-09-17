@@ -12,7 +12,7 @@ import {
   type StoreRecord,
 } from "@/lib/store-service";
 
-import { POST as redeemWalletToken } from "../wallet/[walletId]/redeem/route";
+import { POST as redeemWalletToken } from "../../wallet/[walletId]/redeem/route";
 
 const ACCESS_TOKEN_COOKIE_NAME = "sb-access-token";
 
@@ -32,7 +32,7 @@ const RESULT_MESSAGES: Record<string, string> = {
 
 type SupabaseAdminClient = ReturnType<typeof getSupabaseAdminClient>;
 
-function extractAccessToken(request: Request) {
+async function extractAccessToken(request: Request) {
   const authHeader = request.headers.get("authorization") ?? request.headers.get("Authorization");
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -42,7 +42,7 @@ function extractAccessToken(request: Request) {
     }
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const cookieToken = cookieStore.get(ACCESS_TOKEN_COOKIE_NAME)?.value;
   return cookieToken ?? null;
 }
@@ -96,11 +96,16 @@ type ScanResult =
       expectedStoreId?: string | null;
     };
 
+type ErrorScanResult = Extract<
+  ScanResult,
+  { result: "expired" | "duplicate" | "mismatched_store" | "not_found" | "invalid" }
+>;
+
 async function authenticateMerchant(
   request: Request,
   supabase = getSupabaseAdminClient(),
 ): Promise<AuthenticatedMerchant | { error: NextResponse }> {
-  const accessToken = extractAccessToken(request);
+  const accessToken = await extractAccessToken(request);
 
   if (!accessToken) {
     return {
@@ -271,25 +276,16 @@ async function recordScan(
 }
 
 function buildErrorPayload(
-  result: ScanResult["result"],
+  result: ErrorScanResult["result"],
   message: string,
-  additions: Omit<
-    Extract<
-      ScanResult,
-      { result: "expired" | "duplicate" | "mismatched_store" | "not_found" | "invalid" }
-    >,
-    "result" | "message" | "error"
-  > = {},
+  additions: Omit<ErrorScanResult, "result" | "message" | "error"> = {},
 ) {
   return {
     result,
     message,
     error: message,
     ...additions,
-  } satisfies Extract<
-    ScanResult,
-    { result: "expired" | "duplicate" | "mismatched_store" | "not_found" | "invalid" }
-  >;
+  } satisfies ErrorScanResult;
 }
 
 function buildSuccessPayload(
@@ -442,6 +438,30 @@ export async function POST(request: Request) {
       return couponError;
     }
 
+    if (!couponRow) {
+      await recordScan(supabase, {
+        type: FAILURE_EVENT_TYPE,
+        message: RESULT_MESSAGES.invalid,
+        merchantId,
+        storeId: merchantStore.id,
+        walletId: qrToken.wallet_id,
+        qrTokenId: qrToken.id,
+        couponId: qrToken.coupon_id,
+        result: "invalid",
+        details: { reason: "coupon_not_found" },
+        userId: qrToken.user_id,
+        occurredAt: nowIso,
+      });
+
+      return NextResponse.json(
+        buildErrorPayload("invalid", "Coupon not found for QR token", {
+          coupon: { id: qrToken.coupon_id, code: null },
+          walletId: qrToken.wallet_id,
+        }),
+        { status: 404 },
+      );
+    }
+
     coupon = couponRow;
 
     try {
@@ -567,7 +587,7 @@ export async function POST(request: Request) {
   });
 
   const redeemResponse = await redeemWalletToken(redeemRequest, {
-    params: { walletId: qrToken.wallet_id },
+    params: Promise.resolve({ walletId: qrToken.wallet_id }),
   });
 
   let redeemPayload: unknown = null;

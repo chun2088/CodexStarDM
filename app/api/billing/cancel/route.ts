@@ -14,7 +14,7 @@ import {
 
 const ACCESS_TOKEN_COOKIE_NAME = "sb-access-token";
 
-function extractAccessToken(request: Request) {
+async function extractAccessToken(request: Request) {
   const authHeader = request.headers.get("authorization") ?? request.headers.get("Authorization");
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -24,7 +24,7 @@ function extractAccessToken(request: Request) {
     }
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const cookieToken = cookieStore.get(ACCESS_TOKEN_COOKIE_NAME)?.value;
   return cookieToken ?? null;
 }
@@ -89,7 +89,7 @@ async function authenticateMerchant(
   request: Request,
   supabase = getSupabaseAdminClient(),
 ): Promise<AuthenticatedMerchant | { error: NextResponse }> {
-  const accessToken = extractAccessToken(request);
+  const accessToken = await extractAccessToken(request);
 
   if (!accessToken) {
     return {

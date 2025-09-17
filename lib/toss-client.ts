@@ -27,7 +27,7 @@ function getTossConfig() {
   return globalForToss.__tossConfig;
 }
 
-async function tossFetch(path: string, init: RequestInit & { body?: unknown }) {
+async function tossFetch(path: string, init: Omit<RequestInit, "body"> & { body?: unknown }) {
   const { baseUrl, secretKey } = getTossConfig();
   const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 

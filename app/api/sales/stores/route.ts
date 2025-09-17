@@ -14,7 +14,7 @@ type StoreRow = {
 };
 
 type SalesAssignmentRow = {
-  store: StoreRow | null;
+  store: StoreRow | StoreRow[] | null;
 };
 
 type UserRow = {
@@ -75,7 +75,7 @@ export async function GET() {
   }
 
   const stores = ((assignmentRows ?? []) as SalesAssignmentRow[])
-    .map((row) => row.store)
+    .map((row) => (Array.isArray(row.store) ? row.store[0] ?? null : row.store))
     .filter((store): store is StoreRow => Boolean(store));
 
   stores.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
