@@ -6,6 +6,7 @@ import {
   calculatePeriodEnd,
   upsertStoreSubscription,
 } from "@/lib/store-service";
+import { normalizeDate, normalizeString } from "@/lib/utils/data";
 
 type TossWebhookPayload = {
   eventType?: string;
@@ -59,15 +60,6 @@ function safeDate(value: string) {
   return date;
 }
 
-function asTrimmedString(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
 function coerceNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -84,27 +76,11 @@ function coerceNumber(value: unknown) {
 }
 
 function normalizeCurrency(value: unknown) {
-  const trimmed = asTrimmedString(value);
+  const trimmed = normalizeString(value);
   return trimmed ? trimmed.toUpperCase() : null;
 }
 
-function parseOptionalDate(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed;
-}
+const parseOptionalDate = (value: unknown) => normalizeDate(value);
 
 export async function POST(request: Request) {
   let payload: TossWebhookPayload;
@@ -379,9 +355,9 @@ export async function POST(request: Request) {
     }
 
     const refundNote =
-      asTrimmedString(eventData.reason) ??
-      asTrimmedString(eventData.cancelReason) ??
-      asTrimmedString(eventData.cancellationReason);
+      normalizeString(eventData.reason) ??
+      normalizeString(eventData.cancelReason) ??
+      normalizeString(eventData.cancellationReason);
 
     const cancellationMetadata: Record<string, unknown> = {
       lastWebhookEvent: eventType,

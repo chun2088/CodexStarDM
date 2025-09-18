@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isRecord, normalizeString } from "./utils/data";
+
 type CouponLifecycleStatus = "draft" | "pending" | "active" | "paused" | "archived";
 
 export type CouponApprovalStatus = "pending" | "approved" | "rejected";
@@ -32,10 +34,6 @@ export class CouponNotFoundError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function cloneMetadata(metadata: unknown) {
   if (!isRecord(metadata)) {
     return {} as Record<string, unknown>;
@@ -66,10 +64,6 @@ function coerceStatus(value: unknown, fallback: CouponApprovalStatus) {
   return fallback;
 }
 
-function coerceNullableString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
 function sanitizeHistory(history: unknown) {
   if (!Array.isArray(history)) {
     return undefined;
@@ -83,9 +77,9 @@ function sanitizeHistory(history: unknown) {
     }
 
     const status = coerceStatus(entry.status, "pending");
-    const decidedAt = coerceNullableString(entry.decidedAt);
-    const decidedBy = coerceNullableString(entry.decidedBy);
-    const reason = coerceNullableString(entry.reason);
+    const decidedAt = normalizeString(entry.decidedAt, { trim: false });
+    const decidedBy = normalizeString(entry.decidedBy, { trim: false });
+    const reason = normalizeString(entry.reason, { trim: false });
 
     entries.push({ status, decidedAt, decidedBy, reason });
   }
@@ -115,9 +109,9 @@ export function resolveCouponApproval(
   }
 
   const status = coerceStatus(approval.status, fallback.status);
-  const decidedAt = coerceNullableString(approval.decidedAt);
-  const decidedBy = coerceNullableString(approval.decidedBy);
-  const reason = coerceNullableString(approval.reason);
+  const decidedAt = normalizeString(approval.decidedAt, { trim: false });
+  const decidedBy = normalizeString(approval.decidedBy, { trim: false });
+  const reason = normalizeString(approval.reason, { trim: false });
   const history = sanitizeHistory(approval.history);
 
   return {
@@ -154,8 +148,9 @@ export async function updateCouponApproval(
   const currentApproval = resolveCouponApproval(metadataClone, coupon.is_active);
 
   const nowIso = new Date().toISOString();
-  const nextReason = input.status === "rejected" ? coerceNullableString(input.reason) : null;
-  const decidedByValue = coerceNullableString(input.decidedBy);
+  const nextReason =
+    input.status === "rejected" ? normalizeString(input.reason, { trim: false }) : null;
+  const decidedByValue = normalizeString(input.decidedBy, { trim: false });
   const existingHistory = Array.isArray(currentApproval.history)
     ? [...currentApproval.history]
     : [];

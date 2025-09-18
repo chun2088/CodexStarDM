@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { recordEvent, type EventContext } from "./event-service";
+import { isRecord, normalizeIsoTimestamp, normalizeString } from "./utils/data";
 
 type JsonRecord = {
   [key: string]: unknown;
@@ -30,10 +31,6 @@ export type WalletMetadataMutator = (metadata: JsonRecord) => JsonRecord;
 
 const MAX_STORED_EVENTS = 25;
 
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function cloneMetadata(metadata: unknown): JsonRecord {
   if (!isRecord(metadata)) {
     return {};
@@ -44,41 +41,6 @@ function cloneMetadata(metadata: unknown): JsonRecord {
   }
 
   return JSON.parse(JSON.stringify(metadata));
-}
-
-function asTrimmedString(value: unknown): string | null {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  return null;
-}
-
-function asIsoTimestamp(value: unknown): string | null {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-
-    if (!trimmed) {
-      return null;
-    }
-
-    const parsed = new Date(trimmed);
-
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString();
-    }
-  }
-
-  return null;
 }
 
 const VALID_WALLET_STATUSES: ReadonlySet<WalletStatus> = new Set([
@@ -123,14 +85,14 @@ export function extractCouponState(metadata: unknown): WalletCouponStateRecord {
   const record = couponState as Record<string, unknown>;
 
   return {
-    couponId: asTrimmedString(record.couponId),
-    couponCode: asTrimmedString(record.couponCode),
+    couponId: normalizeString(record.couponId, { convertDate: true }),
+    couponCode: normalizeString(record.couponCode, { convertDate: true }),
     status: asWalletStatus(record.status),
-    claimedAt: asIsoTimestamp(record.claimedAt),
-    redeemedAt: asIsoTimestamp(record.redeemedAt),
-    lastUpdatedAt: asIsoTimestamp(record.lastUpdatedAt),
-    qrTokenId: asTrimmedString(record.qrTokenId),
-    qrTokenExpiresAt: asIsoTimestamp(record.qrTokenExpiresAt),
+    claimedAt: normalizeIsoTimestamp(record.claimedAt) ?? null,
+    redeemedAt: normalizeIsoTimestamp(record.redeemedAt) ?? null,
+    lastUpdatedAt: normalizeIsoTimestamp(record.lastUpdatedAt) ?? null,
+    qrTokenId: normalizeString(record.qrTokenId, { convertDate: true }),
+    qrTokenExpiresAt: normalizeIsoTimestamp(record.qrTokenExpiresAt) ?? null,
   } satisfies WalletCouponStateRecord;
 }
 

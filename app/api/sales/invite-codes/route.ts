@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { authorizationErrorResponse, isAuthorizationError, requireAuthenticatedUser } from "@/lib/server-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import { asRecord, normalizeIsoTimestamp, normalizeString } from "@/lib/utils/data";
 
 type InviteRow = {
   id: string;
@@ -33,10 +34,6 @@ type CreateInviteBody = {
   isActive?: boolean;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function normalizeCode(code: string) {
   return code.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "-");
 }
@@ -60,19 +57,7 @@ function parseMaxUses(value: unknown) {
   return Math.floor(numberValue);
 }
 
-function parseIsoDate(value: unknown) {
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return undefined;
-  }
-
-  return parsed.toISOString();
-}
+const parseIsoDate = (value: unknown) => normalizeIsoTimestamp(value, { onInvalid: "undefined" });
 
 export async function GET() {
   let auth;
@@ -135,8 +120,8 @@ export async function GET() {
   const creatorsById = new Map(creators.map((creator) => [creator.id, creator]));
 
   const payload = invites.map((invite) => {
-    const metadata = isRecord(invite.metadata) ? invite.metadata : {};
-    const note = typeof metadata.note === "string" ? metadata.note : null;
+    const metadata = asRecord(invite.metadata) ?? {};
+    const note = normalizeString(metadata.note, { trim: false });
     const remainingUses =
       invite.max_uses !== null ? Math.max(invite.max_uses - invite.used_count, 0) : null;
     const creator = invite.created_by ? creatorsById.get(invite.created_by) : null;
@@ -225,11 +210,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
-  const createdBy =
-    typeof body.createdBy === "string" && body.createdBy.trim()
-      ? body.createdBy.trim()
-      : user.id;
+  const note = normalizeString(body.note, { trim: true });
+  const createdBy = normalizeString(body.createdBy, { trim: true }) ?? user.id;
   const isActive = body.isActive === undefined ? true : Boolean(body.isActive);
 
   const metadata: Record<string, unknown> = {};

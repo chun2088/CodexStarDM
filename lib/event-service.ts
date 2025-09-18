@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { normalizeIsoTimestamp, normalizeString } from "./utils/data";
+
 export type EventContext = {
   userId?: string | null;
   actorId?: string | null;
@@ -27,14 +29,7 @@ export type EventRecordInput = {
 };
 
 function coerceIsoTimestamp(value?: string) {
-  if (typeof value === "string" && value.trim()) {
-    const candidate = new Date(value);
-    if (!Number.isNaN(candidate.getTime())) {
-      return candidate.toISOString();
-    }
-  }
-
-  return new Date().toISOString();
+  return normalizeIsoTimestamp(value) ?? new Date().toISOString();
 }
 
 function pruneUndefined(value: unknown): unknown {
@@ -114,8 +109,9 @@ function buildEventData(input: EventRecordInput) {
     occurredAt,
   };
 
-  if (typeof input.message === "string" && input.message.trim()) {
-    data.message = input.message;
+  const message = normalizeString(input.message);
+  if (message) {
+    data.message = message;
   }
 
   const context = sanitizeRecord(input.context ?? undefined);
@@ -128,7 +124,7 @@ function buildEventData(input: EventRecordInput) {
     data.details = details;
   }
 
-  const source = typeof input.source === "string" && input.source.trim() ? input.source.trim() : null;
+  const source = normalizeString(input.source);
   if (source) {
     data.source = source;
   }
@@ -137,7 +133,7 @@ function buildEventData(input: EventRecordInput) {
 }
 
 export async function recordEvent(client: SupabaseClient, input: EventRecordInput) {
-  const type = typeof input.type === "string" ? input.type.trim() : "";
+  const type = normalizeString(input.type);
 
   if (!type) {
     throw new Error("Event type is required");
