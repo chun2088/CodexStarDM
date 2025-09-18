@@ -8,19 +8,13 @@ import {
   fetchStoreForCoupon,
 } from "@/lib/store-service";
 import { ensureCouponState, transitionWallet } from "@/lib/wallet-service";
+import { asRecord, normalizeString } from "@/lib/utils/data";
 
 type RedeemRequestBody = {
   token?: string;
 };
 
-function extractCouponCodeFromMetadata(metadata: unknown) {
-  if (!metadata || typeof metadata !== "object") {
-    return null;
-  }
-
-  const candidate = (metadata as Record<string, unknown>).couponCode;
-  return typeof candidate === "string" ? candidate : null;
-}
+const extractCouponCodeFromMetadata = (metadata: unknown) => normalizeString(asRecord(metadata)?.couponCode);
 
 export async function POST(
   request: Request,

@@ -11,6 +11,7 @@ import {
   type StoreSubscriptionRecord,
   type StoreSubscriptionStatus,
 } from "@/lib/store-service";
+import { normalizeDate, normalizeString } from "@/lib/utils/data";
 
 const ACCESS_TOKEN_COOKIE_NAME = "sb-access-token";
 
@@ -43,15 +44,6 @@ type AuthenticatedMerchant = {
   store: StoreRecord;
 };
 
-function asTrimmedString(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
 function coercePositiveNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -65,24 +57,6 @@ function coercePositiveNumber(value: unknown) {
   }
 
   return null;
-}
-
-function parseIsoDate(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date;
 }
 
 async function authenticateMerchant(
@@ -154,7 +128,7 @@ async function authenticateMerchant(
 }
 
 function normalizeCurrency(value: unknown) {
-  const trimmed = asTrimmedString(value);
+  const trimmed = normalizeString(value);
   return trimmed ? trimmed.toUpperCase() : null;
 }
 
@@ -180,7 +154,7 @@ export async function POST(request: Request) {
   const { merchantId } = authResult;
   let store = authResult.store;
 
-  const normalizedStoreId = asTrimmedString(storeIdInput);
+  const normalizedStoreId = normalizeString(storeIdInput);
 
   if (normalizedStoreId && normalizedStoreId !== store.id) {
     try {
@@ -243,7 +217,7 @@ export async function POST(request: Request) {
     if (payload.graceUntil === null) {
       resolvedGrace = null;
     } else {
-      const parsedGrace = parseIsoDate(payload.graceUntil);
+      const parsedGrace = normalizeDate(payload.graceUntil);
       if (!parsedGrace) {
         return NextResponse.json({ error: "graceUntil must be a valid ISO date" }, { status: 400 });
       }
@@ -261,8 +235,8 @@ export async function POST(request: Request) {
     resolvedGrace = null;
   }
 
-  const reason = asTrimmedString(payload.reason);
-  const refundNote = asTrimmedString(payload.refundNote);
+  const reason = normalizeString(payload.reason);
+  const refundNote = normalizeString(payload.refundNote);
 
   const refundAmount = coercePositiveNumber(payload.refundAmount);
 

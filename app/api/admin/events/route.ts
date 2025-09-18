@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import { isRecord, normalizeIsoTimestamp } from "@/lib/utils/data";
 
 type EventRow = {
   id: string;
@@ -40,16 +41,7 @@ function parseSince(raw: string | null) {
     return null;
   }
 
-  const candidate = new Date(raw);
-  if (Number.isNaN(candidate.getTime())) {
-    return null;
-  }
-
-  return candidate.toISOString();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return normalizeIsoTimestamp(raw) ?? null;
 }
 
 function normalizeEvent(row: EventRow): NormalizedEvent {

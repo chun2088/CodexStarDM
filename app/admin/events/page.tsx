@@ -1,15 +1,11 @@
 import Link from "next/link";
 
 import { getSupabaseAdminClient } from "@/lib/supabase-client";
+import { formatDateTime, isRecord } from "@/lib/utils/data";
 
 export const dynamic = "force-dynamic";
 
 const MAX_EVENTS = 50;
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
 
 type EventRow = {
   id: string;
@@ -28,20 +24,6 @@ type NormalizedEvent = {
   context: Record<string, unknown>;
   details: Record<string, unknown>;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return dateFormatter.format(date);
-}
 
 function normalizeEvent(row: EventRow): NormalizedEvent {
   const payload = isRecord(row.data) ? row.data : {};
@@ -156,10 +138,10 @@ export default async function AdminEventsPage() {
                         <div className="mt-1 text-xs font-normal text-slate-500 dark:text-slate-400">{event.id}</div>
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-700 dark:text-slate-200">
-                        <div>{formatDate(event.occurredAt)}</div>
+                        <div>{formatDateTime(event.occurredAt)}</div>
                         {event.createdAt !== event.occurredAt ? (
                           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            Recorded {formatDate(event.createdAt)}
+                            Recorded {formatDateTime(event.createdAt)}
                           </div>
                         ) : null}
                       </td>
