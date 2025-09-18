@@ -8,8 +8,8 @@ import {
   requireAuthenticatedUser,
   type AuthContext,
 } from "./server-auth";
-import { handleApprove } from "@/app/api/sales/approvals/[id]/approve/route";
-import { handleReject } from "@/app/api/sales/approvals/[id]/reject/route";
+import { handleApprove } from "@/app/api/sales/approvals/[id]/approve/handler";
+import { handleReject } from "@/app/api/sales/approvals/[id]/reject/handler";
 
 function createSupabaseStub({
   session,
