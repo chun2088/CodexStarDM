@@ -11,6 +11,7 @@ import {
   type WalletCouponStateRecord,
   type WalletStatus,
 } from "@/lib/wallet-service";
+import { asRecord, normalizeIsoTimestamp, normalizeString } from "@/lib/utils/data";
 
 type CouponRedemptionRow = {
   id: string;
@@ -54,39 +55,8 @@ type ActiveQrTokenResponse = {
   metadata: Record<string, unknown> | null;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function coerceIsoTimestamp(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed.toISOString();
-}
-
 function resolveStatus(state: WalletCouponStateRecord, fallback: WalletStatus): WalletStatus {
   return state.status ?? fallback;
-}
-
-function extractCouponCodeFromMetadata(metadata: unknown) {
-  if (!isRecord(metadata)) {
-    return null;
-  }
-
-  const value = metadata.couponCode;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  return null;
 }
 
 function sortEntries(entries: WalletCouponEntryResponse[]) {
@@ -187,7 +157,7 @@ export async function GET(
       couponIds.add(redemption.coupon_id);
 
       const existing = entriesByCouponId.get(redemption.coupon_id);
-      const redeemedAt = coerceIsoTimestamp(redemption.redeemed_at);
+      const redeemedAt = normalizeIsoTimestamp(redemption.redeemed_at) ?? null;
 
       if (existing) {
         existing.status = "used";
@@ -233,11 +203,11 @@ export async function GET(
 
   if (Array.isArray(activeTokens) && activeTokens.length > 0) {
     const token = activeTokens[0] as ActiveQrTokenRow;
-    const expiresAt = coerceIsoTimestamp(token.expires_at);
+    const expiresAt = normalizeIsoTimestamp(token.expires_at) ?? null;
 
     if (expiresAt) {
-      const metadata = isRecord(token.metadata) ? { ...token.metadata } : null;
-      const couponCode = extractCouponCodeFromMetadata(metadata ?? undefined);
+      const metadata = asRecord(token.metadata);
+      const couponCode = normalizeString(metadata?.couponCode);
       const couponId = token.coupon_id ?? null;
 
       if (couponId) {
@@ -270,7 +240,7 @@ export async function GET(
         couponId,
         couponCode: couponCode ?? null,
         expiresAt,
-        metadata,
+        metadata: metadata ?? null,
       } satisfies ActiveQrTokenResponse;
     }
   }
