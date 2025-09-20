@@ -34,12 +34,12 @@ export function AppNavigation({
 
   return (
     <header className="border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4">
-        <div>
+      <div className="mx-auto flex w-full max-w-6xl flex-col items-start gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
+        <div className="w-full md:w-auto">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{subtitle}</p>
           <h1 className="text-xl font-semibold text-slate-900 dark:text-white">{title}</h1>
         </div>
-        <nav className="flex flex-wrap items-center gap-2">
+        <nav className="-mx-4 flex w-[calc(100%+2rem)] flex-nowrap items-center gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:w-auto md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
           {navLinks.map((link) => {
             const isActive = pathname.startsWith(link.href);
             return (
@@ -49,7 +49,11 @@ export function AppNavigation({
             );
           })}
         </nav>
-        {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
+        {actions ? (
+          <div className="flex w-full items-center gap-2 md:ml-auto md:w-auto md:justify-end">
+            {actions}
+          </div>
+        ) : null}
       </div>
     </header>
   );
